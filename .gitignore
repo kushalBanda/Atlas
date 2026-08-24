@@ -145,3 +145,6 @@ vite.config.ts.timestamp-*
 # Docs
 docs/resources/
 .cursor/
+
+# Build artifacts
+/atlas-server

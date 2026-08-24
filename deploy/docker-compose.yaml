@@ -1,0 +1,17 @@
+# Baseline single-node dev stack. Placeholder, not yet wired to atlas-server build.
+version: "3.8"
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "9000:9000"
+      - "8123:8123"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes:
+      - ./otel-collector:/etc/otel-collector
+    command: ["--config=/etc/otel-collector/config.yaml"]
+    depends_on:
+      - clickhouse

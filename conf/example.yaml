@@ -1,0 +1,7 @@
+# Sample runtime config for atlas-server. Baseline placeholder, not yet wired up.
+server:
+  port: 8080
+
+storage:
+  clickhouse:
+    dsn: "clickhouse://localhost:9000/atlas"
