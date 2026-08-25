@@ -1,0 +1,32 @@
+sequenceDiagram
+  participant C as Caller
+  participant H1 as Hop 1
+  participant H2 as Hop 2
+  participant HN as Hop N
+  participant ING as Ingest layer
+  participant ST as Storage layer
+  participant AN as Analysis layer
+  participant Q as Access layer
+
+  C->>H1: request<br/>(trace_id generated, W3C Trace Context header set)
+  H1->>H2: forwarded call<br/>(trace_id propagated, parent_span_id = H1's span)
+  H2->>HN: forwarded call<br/>(trace_id propagated, parent_span_id = H2's span)
+  HN-->>H2: response or error status
+  H2-->>H1: response or error status
+  H1-->>C: response or error status
+
+  par each hop reports independently
+    H1->>ING: span(trace_id, span_id, parent_span_id,<br/>start, duration, status, resource attrs)
+    H2->>ING: span(...)
+    HN->>ING: span(...)
+  end
+
+  ING->>ST: persist spans keyed by trace_id
+
+  Note over ST,AN: trace considered closed<br/>(no new span for trace_id within window)
+  ST->>AN: closed trace tree
+  AN->>AN: compute self-time per span,<br/>rank by self-time % and error status
+  AN->>ST: write likely_root_cause_span_id + reason
+
+  Q->>ST: read(trace_id)
+  ST-->>Q: full span tree + derived verdict

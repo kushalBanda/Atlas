@@ -1,4 +1,4 @@
-# Atlas — Project Folder Structure
+# Atlas: Project Folder Structure
 
 Date: 2026-08-24
 Status: Approved

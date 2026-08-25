@@ -1,0 +1,21 @@
+flowchart TD
+  START([Atlas starts]) --> P1[Stage 1: process/port scan]
+  P1 --> P1Q{Listening socket<br/>matches curated rule?}
+  P1Q -->|yes| P1M[Start collector job<br/>for matched service]
+  P1Q -->|no| P1U[Mark unrecognized service]
+
+  P1M --> P2[Stage 2: Docker discovery]
+  P1U --> P2
+  P2 --> P2Q{Docker daemon present<br/>and image matches rule?}
+  P2Q -->|yes| P2M[Start collector job<br/>per container port]
+  P2Q -->|no| P3
+
+  P2M --> P3[Stage 3: K8s discovery]
+  P3 --> P3Q{K8s API reachable<br/>and pod matches rule?}
+  P3Q -->|yes| P3M[Start collector job<br/>+ attach pod/node/namespace attrs]
+  P3Q -->|no| DONE
+
+  P3M --> DONE([Discovery cycle complete])
+  DONE -->|reconcile on interval| P1
+
+  MANUAL[atlas collect tool<br/>manual override] -.->|fallback when discovery misses| P1M

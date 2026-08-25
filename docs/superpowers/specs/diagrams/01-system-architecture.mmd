@@ -1,0 +1,58 @@
+flowchart TD
+  classDef pad fill:none,stroke:none,color:transparent
+  subgraph L0["Instrumented process layer"]
+    direction TB
+    S1[Source]
+    S2[Source]
+    SN[Source ...N]
+  end
+
+  subgraph L1["Control plane — pkg/discovery"]
+    direction LR
+    DISC[Discoverer interface]
+    R1[implementation: process/port]
+    R2[implementation: container runtime]
+    R3[implementation: orchestrator API]
+    DISC --- R1
+    DISC --- R2
+    DISC --- R3
+  end
+
+  subgraph L2["Ingest layer — pkg/ingest"]
+    RECV[Protocol receiver<br/>OTLP + W3C trace context]
+  end
+
+  subgraph L3["Extension layer — pkg/plugin"]
+    REG[Module registry interface]
+    M1[registered module: core signals]
+    MN[registered module: domain-specific signals]
+    REG --- M1
+    REG --- MN
+  end
+
+  subgraph L4["Storage layer — pkg/storage"]
+    IFACE[Storage interface]
+    IMPL[(embedded columnar store)]
+    IFACE --- IMPL
+  end
+
+  subgraph L5["Analysis layer — pkg/rootcause"]
+    ANALYZE[Trace-tree analyzer<br/>runs on trace close]
+  end
+
+  subgraph L6["Access layer"]
+    API[pkg/api — routing]
+    QRY[pkg/query — read interface]
+  end
+
+  UI[Presentation — any client]
+
+  L0 -->|emits spans, tagged with trace context| L2
+  L1 -->|registers collection targets against| L2
+  L2 -->|dispatches by schema to| L3
+  L3 -->|writes through| L4
+  L4 -->|closed trace triggers| L5
+  L5 -->|writes derived verdict back to| L4
+  L4 -->|reads via| L6
+  API --> QRY
+  L6 --> UI

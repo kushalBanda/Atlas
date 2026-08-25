@@ -1,0 +1,23 @@
+flowchart TD
+  A([Trace closes<br/>no new spans within timeout]) --> B[Walk trace tree]
+  B --> C[Compute self-time per span<br/>duration minus sum of child durations]
+  B --> D[Flag spans with error status]
+
+  D --> E{Any error-status span?}
+  E -->|yes| F[Primary candidate:<br/>earliest error span]
+  E -->|no| G[No error candidate]
+
+  C --> H{Any span self-time<br/>> 30% of total trace duration?}
+  H -->|yes| I[Secondary candidate:<br/>highest self-time span]
+  H -->|no| J[No self-time candidate]
+
+  F --> K[Rank candidates]
+  G --> K
+  I --> K
+  J --> K
+
+  K --> L[Top candidate =<br/>likely_root_cause_span_id]
+  L --> M[Write reason string<br/>e.g. '67% of trace time, no children'<br/>or 'first error in trace']
+  M --> N[(Store verdict on trace row<br/>DuckDB)]
+
+  N -.future scope.-> ML[Trained ML model<br/>baseline-aware anomaly scoring]
