@@ -144,6 +144,8 @@ vite.config.ts.timestamp-*
 
 # Docs
 docs/resources/
+docs/handoff/
+docs/plans/
 .cursor/
 
 # Build artifacts
