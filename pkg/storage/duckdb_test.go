@@ -53,6 +53,54 @@ func TestWriteAndGetTraceSpans(t *testing.T) {
 	require.Equal(t, "error", got[1].StatusCode)
 }
 
+func TestWriteAndGetTraceSpans_LLMFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	start := time.Now().UTC().Truncate(time.Millisecond)
+
+	model := "gpt-5.6"
+	promptTokens := int64(12)
+	completionTokens := int64(34)
+	cost := 0.0056
+	prompt := "hello"
+	completion := "world"
+
+	spans := []Span{
+		{
+			TraceID: "t1", SpanID: "llm-span", ServiceName: "svc-a", Name: "chat",
+			StartTime: start, EndTime: start.Add(time.Second), StatusCode: "ok",
+			LLMModel: &model, LLMPromptTokens: &promptTokens, LLMCompletionTokens: &completionTokens,
+			LLMCost: &cost, LLMPrompt: &prompt, LLMCompletion: &completion,
+		},
+		{
+			TraceID: "t1", SpanID: "plain-span", ParentSpanID: "llm-span", ServiceName: "svc-a", Name: "op",
+			StartTime: start, EndTime: start.Add(time.Second), StatusCode: "ok",
+		},
+	}
+	require.NoError(t, db.WriteSpans(ctx, spans))
+
+	got, err := db.GetTraceSpans(ctx, "t1")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	require.Equal(t, "llm-span", got[0].SpanID)
+	require.Equal(t, &model, got[0].LLMModel)
+	require.Equal(t, &promptTokens, got[0].LLMPromptTokens)
+	require.Equal(t, &completionTokens, got[0].LLMCompletionTokens)
+	require.Equal(t, &cost, got[0].LLMCost)
+	require.Equal(t, &prompt, got[0].LLMPrompt)
+	require.Equal(t, &completion, got[0].LLMCompletion)
+
+	require.Equal(t, "plain-span", got[1].SpanID)
+	require.Nil(t, got[1].LLMModel)
+	require.Nil(t, got[1].LLMPromptTokens)
+	require.Nil(t, got[1].LLMCompletionTokens)
+	require.Nil(t, got[1].LLMCost)
+	require.Nil(t, got[1].LLMPrompt)
+	require.Nil(t, got[1].LLMCompletion)
+}
+
 func TestListRootArrivedTraces_OnlyReturnsTracesWithRootSpan(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)

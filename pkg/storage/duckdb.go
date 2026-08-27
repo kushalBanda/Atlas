@@ -85,8 +85,9 @@ func (d *DuckDB) WriteSpans(ctx context.Context, spans []Span) error {
 
 	spanStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO spans (trace_id, span_id, parent_span_id, service_name, name,
-			start_time, end_time, status_code, attributes, resource_attributes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			start_time, end_time, status_code, attributes, resource_attributes,
+			llm_model, llm_prompt_tokens, llm_completion_tokens, llm_cost, llm_prompt, llm_completion)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (trace_id, span_id) DO NOTHING
 	`)
 	if err != nil {
@@ -122,7 +123,8 @@ func (d *DuckDB) WriteSpans(ctx context.Context, spans []Span) error {
 		}
 
 		if _, err := spanStmt.ExecContext(ctx, s.TraceID, s.SpanID, parentSpanID,
-			s.ServiceName, s.Name, s.StartTime, s.EndTime, s.StatusCode, attrs, resAttrs); err != nil {
+			s.ServiceName, s.Name, s.StartTime, s.EndTime, s.StatusCode, attrs, resAttrs,
+			s.LLMModel, s.LLMPromptTokens, s.LLMCompletionTokens, s.LLMCost, s.LLMPrompt, s.LLMCompletion); err != nil {
 			return fmt.Errorf("inserting span %s/%s: %w", s.TraceID, s.SpanID, err)
 		}
 
@@ -141,7 +143,8 @@ func (d *DuckDB) WriteSpans(ctx context.Context, spans []Span) error {
 func (d *DuckDB) GetTraceSpans(ctx context.Context, traceID string) ([]Span, error) {
 	rows, err := d.db.QueryContext(ctx, `
 		SELECT trace_id, span_id, COALESCE(parent_span_id, ''), service_name, name,
-			start_time, end_time, status_code, attributes, resource_attributes
+			start_time, end_time, status_code, attributes, resource_attributes,
+			llm_model, llm_prompt_tokens, llm_completion_tokens, llm_cost, llm_prompt, llm_completion
 		FROM spans
 		WHERE trace_id = ?
 		ORDER BY start_time
@@ -156,7 +159,8 @@ func (d *DuckDB) GetTraceSpans(ctx context.Context, traceID string) ([]Span, err
 		var s Span
 		var attrs, resAttrs string
 		if err := rows.Scan(&s.TraceID, &s.SpanID, &s.ParentSpanID, &s.ServiceName, &s.Name,
-			&s.StartTime, &s.EndTime, &s.StatusCode, &attrs, &resAttrs); err != nil {
+			&s.StartTime, &s.EndTime, &s.StatusCode, &attrs, &resAttrs,
+			&s.LLMModel, &s.LLMPromptTokens, &s.LLMCompletionTokens, &s.LLMCost, &s.LLMPrompt, &s.LLMCompletion); err != nil {
 			return nil, fmt.Errorf("scanning span row: %w", err)
 		}
 		if s.Attributes, err = unmarshalJSON(attrs); err != nil {

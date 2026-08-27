@@ -20,6 +20,14 @@ type Span struct {
 	StatusCode         string // "ok" | "error" | "unset"
 	Attributes         map[string]any
 	ResourceAttributes map[string]any
+
+	// LLM fields, populated only by llmagent.HandleSpans; nil otherwise.
+	LLMModel            *string
+	LLMPromptTokens     *int64
+	LLMCompletionTokens *int64
+	LLMCost             *float64
+	LLMPrompt           *string
+	LLMCompletion       *string
 }
 
 // Trace is one row per trace, written/updated at trace-close time.
