@@ -146,7 +146,9 @@ vite.config.ts.timestamp-*
 docs/resources/
 docs/handoff/
 docs/plans/
+docs/notes/basic.md
 .cursor/
 
 # Build artifacts
 /atlas-server
+atlas.duckdb

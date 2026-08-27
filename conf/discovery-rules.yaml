@@ -1,0 +1,19 @@
+# Curated (port, process/image) -> receiver-config rules for pkg/discovery.
+# External file, not compiled into the binary — edit and restart, no rebuild.
+# See docs/plans/atlas/03-program-design.md "Least confident decisions" #5.
+rules:
+  - port: 5432
+    process_match: postgres
+    receiver_config: postgresql
+  - port: 3306
+    process_match: mysqld
+    receiver_config: mysql
+  - port: 6379
+    process_match: redis-server
+    receiver_config: redis
+  - port: 27017
+    process_match: mongod
+    receiver_config: mongodb
+  - port: 9092
+    process_match: kafka
+    receiver_config: kafka

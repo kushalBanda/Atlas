@@ -1,7 +1,27 @@
-# Sample runtime config for atlas-server. Baseline placeholder, not yet wired up.
-server:
-  port: 8080
+# Sample runtime config for atlas-server. Every field is optional — any
+# field omitted here keeps its default (see pkg/config.Default). Copy this
+# file, edit what you need, and pass its path via -config.
 
-storage:
-  clickhouse:
-    dsn: "clickhouse://localhost:9000/atlas"
+# Path to the embedded DuckDB file. ":memory:" is valid (tests use it),
+# not recommended for a real run since all data is lost on exit.
+storage_path: ./atlas.duckdb
+
+# Bind addresses. Default to 127.0.0.1: the no-auth design is only safe
+# when not reachable over the network by default. Override to 0.0.0.0
+# explicitly for Compose/K8s deployments.
+ingest_addr: 127.0.0.1:4318
+api_addr: 127.0.0.1:8080
+
+# Fallback trace-close trigger only (root span never arrives) — the
+# primary trigger is root-span arrival, not this timeout. Matches OTel
+# Collector's tail_sampling decision_wait convention.
+trace_close_timeout: 30s
+
+# Self-time threshold (fraction of total trace duration) above which a
+# span is flagged as the likely root cause when no span errored.
+# Unvalidated default — see docs/plans/atlas/future.md.
+root_cause_self_time_pct: 0.30
+
+# External discovery rules file (port/process/image -> receiver config).
+# Edited independently of this file, no rebuild needed.
+discovery_rules_path: ./conf/discovery-rules.yaml
