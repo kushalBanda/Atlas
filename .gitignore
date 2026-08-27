@@ -145,7 +145,6 @@ vite.config.ts.timestamp-*
 # Docs
 docs/resources/
 docs/handoff/
-docs/plans/
 docs/notes/basic.md
 .cursor/
 
