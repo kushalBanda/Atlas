@@ -13,6 +13,8 @@ type Extractor func(s *storage.Span)
 
 // All extractors, applied to every span at ingest regardless of atlas.module.
 var All = []Extractor{
+	ExtractSpanKind,
+	ExtractLevel,
 	ExtractLLMFields,
 }
 

@@ -21,12 +21,27 @@ type Span struct {
 	Attributes         map[string]any
 	ResourceAttributes map[string]any
 
+	// SpanKind and Level apply to any span, not just LLM calls (e.g.
+	// SpanKind "tool"/"chain"/"retriever", Level "ERROR"/"WARNING").
+	// Populated by pkg/fields.ExtractSpanKind/ExtractLevel; nil otherwise.
+	SpanKind *string
+	Level    *string
+
 	// LLM fields, populated by pkg/fields.ExtractLLMFields; nil otherwise.
 	// Prompt/completion text isn't duplicated here — read it from Attributes.
-	LLMModel            *string
-	LLMPromptTokens     *int64
-	LLMCompletionTokens *int64
-	LLMCost             *float64
+	LLMModel                *string
+	LLMPromptTokens         *int64
+	LLMCompletionTokens     *int64
+	LLMCost                 *float64
+	LLMTemperature          *float64
+	LLMTopP                 *float64
+	LLMMaxTokens            *int64
+	LLMUsageDetails         map[string]any // usage breakdown beyond prompt/completion tokens (cache, reasoning, ...)
+	LLMCostDetails          map[string]any // cost breakdown beyond total (input/output/cache, ...)
+	LLMTimeToFirstTokenNano *int64
+	LLMPromptID             *string
+	LLMPromptName           *string
+	LLMPromptVersion        *int64
 }
 
 // Trace is one row per trace, written/updated at trace-close time.

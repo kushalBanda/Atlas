@@ -9,13 +9,11 @@ Instrument a service so its spans land in Atlas (self-hosted OTel trace store, D
 
 - Endpoint: `http://<atlas-host>:4318/v1/traces` (OTLP/HTTP, standard fixed path — do not add a version prefix, do not change it)
 - Default host if Atlas runs on the same machine: `127.0.0.1`
-- Every span's resource attributes must set `atlas.module`, naming which Atlas plugin module owns it:
-  - `llmagent` — LLM calls, agent steps, tool calls (anything gen_ai-shaped)
-  - `otelcore` — everything else (default if the attribute is absent, so it only needs to be set explicitly for `llmagent` spans)
+- `atlas.module` resource attribute is optional, not required. It only decides which plugin module a span routes to (`otelcore` default, or `llmagent`); both currently behave identically. Field extraction below (`gen_ai.*`, `openinference.span.kind`, `level`) runs on every span regardless of `atlas.module` — set it only if you're relying on future module-specific routing, not to get typed fields populated.
 
-## gen_ai.* attributes (llmagent module)
+## Attributes Atlas extracts into typed columns
 
-Set these span attributes on any span representing an LLM call, so Atlas parses them into typed columns instead of leaving them as opaque JSON:
+Set these span attributes so Atlas parses them into typed, queryable columns instead of leaving them as opaque JSON. The `gen_ai.*` ones apply to LLM-call spans; `openinference.span.kind`/`level` apply to any span:
 
 | Attribute | Type | Meaning |
 |---|---|---|
@@ -26,8 +24,15 @@ Set these span attributes on any span representing an LLM call, so Atlas parses 
 | `gen_ai.usage.cost` | float | cost of the call, if the provider returns it |
 | `gen_ai.prompt` | string | full prompt text |
 | `gen_ai.completion` | string | full completion text |
+| `gen_ai.request.temperature` / `gen_ai.request.top_p` / `gen_ai.request.max_tokens` | float / float / int | request model parameters |
+| `gen_ai.usage.time_to_first_token_ms` | float | latency to first token, milliseconds |
+| `gen_ai.prompt.id` / `gen_ai.prompt.name` / `gen_ai.prompt.version` | string / string / int | links the call to a managed prompt template |
+| `gen_ai.usage.cache_read_tokens` / `gen_ai.usage.cache_write_tokens` / `gen_ai.usage.reasoning_tokens` / `gen_ai.usage.audio_tokens` | int | provider-specific usage breakdown, collected into `LLMUsageDetails` |
+| `gen_ai.usage.cost.input` / `gen_ai.usage.cost.output` / `gen_ai.usage.cost.cache` | float | provider-specific cost breakdown, collected into `LLMCostDetails` |
+| `openinference.span.kind` | string | span kind (`LLM`/`TOOL`/`CHAIN`/`RETRIEVER`/...), any span — extracted into `SpanKind` |
+| `level` | string | severity (`DEBUG`/`DEFAULT`/`WARNING`/`ERROR`), any span — extracted into `Level` |
 
-`gen_ai.request.model`/`response.model`, prompt/completion token counts, and `gen_ai.usage.cost` are extracted into typed, queryable columns (`LLMModel`, `LLMPromptTokens`, `LLMCompletionTokens`, `LLMCost`). `gen_ai.prompt`/`gen_ai.completion` are full-text and not duplicated into typed columns — still readable, just from the span's `attributes` JSON, not a dedicated field.
+`gen_ai.request.model`/`response.model`, prompt/completion token counts, `gen_ai.usage.cost`, model parameters, time-to-first-token, and prompt linkage are extracted into typed, queryable columns. `gen_ai.prompt`/`gen_ai.completion` are full-text and not duplicated into typed columns — still readable, just from the span's `attributes` JSON, not a dedicated field.
 
 This extraction is attribute-driven, not module-gated: it runs on every span regardless of `atlas.module`, so tagging a span `llmagent` is not required for `gen_ai.*` extraction to happen — only `gen_ai.*` keys being present on the span matters.
 
@@ -45,7 +50,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-resource = Resource.create({"service.name": "<your-service>", "atlas.module": "llmagent"})
+resource = Resource.create({"service.name": "<your-service>"})
 provider = TracerProvider(resource=resource)
 provider.add_span_processor(BatchSpanProcessor(
     OTLPSpanExporter(endpoint="http://127.0.0.1:4318/v1/traces")

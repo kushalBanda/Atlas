@@ -95,6 +95,71 @@ func TestWriteAndGetTraceSpans_LLMFieldsRoundTrip(t *testing.T) {
 	require.Nil(t, got[1].LLMCost)
 }
 
+func TestWriteAndGetTraceSpans_ExtendedLLMFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	start := time.Now().UTC().Truncate(time.Millisecond)
+
+	kind := "LLM"
+	level := "ERROR"
+	temp := 0.7
+	topP := 0.9
+	maxTokens := int64(512)
+	ttft := int64(120_000_000)
+	promptID := "pr-1"
+	promptName := "support-agent"
+	promptVersion := int64(3)
+
+	spans := []Span{
+		{
+			TraceID: "t1", SpanID: "llm-span", ServiceName: "svc-a", Name: "chat",
+			StartTime: start, EndTime: start.Add(time.Second), StatusCode: "error",
+			SpanKind: &kind, Level: &level,
+			LLMTemperature: &temp, LLMTopP: &topP, LLMMaxTokens: &maxTokens,
+			LLMUsageDetails:         map[string]any{"cache_read_tokens": float64(4)},
+			LLMCostDetails:          map[string]any{"input": float64(0.002)},
+			LLMTimeToFirstTokenNano: &ttft,
+			LLMPromptID:             &promptID, LLMPromptName: &promptName, LLMPromptVersion: &promptVersion,
+		},
+		{
+			TraceID: "t1", SpanID: "plain-span", ParentSpanID: "llm-span", ServiceName: "svc-a", Name: "op",
+			StartTime: start, EndTime: start.Add(time.Second), StatusCode: "ok",
+		},
+	}
+	require.NoError(t, db.WriteSpans(ctx, spans))
+
+	got, err := db.GetTraceSpans(ctx, "t1")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	require.Equal(t, "llm-span", got[0].SpanID)
+	require.Equal(t, &kind, got[0].SpanKind)
+	require.Equal(t, &level, got[0].Level)
+	require.Equal(t, &temp, got[0].LLMTemperature)
+	require.Equal(t, &topP, got[0].LLMTopP)
+	require.Equal(t, &maxTokens, got[0].LLMMaxTokens)
+	require.Equal(t, map[string]any{"cache_read_tokens": float64(4)}, got[0].LLMUsageDetails)
+	require.Equal(t, map[string]any{"input": float64(0.002)}, got[0].LLMCostDetails)
+	require.Equal(t, &ttft, got[0].LLMTimeToFirstTokenNano)
+	require.Equal(t, &promptID, got[0].LLMPromptID)
+	require.Equal(t, &promptName, got[0].LLMPromptName)
+	require.Equal(t, &promptVersion, got[0].LLMPromptVersion)
+
+	require.Equal(t, "plain-span", got[1].SpanID)
+	require.Nil(t, got[1].SpanKind)
+	require.Nil(t, got[1].Level)
+	require.Nil(t, got[1].LLMTemperature)
+	require.Nil(t, got[1].LLMTopP)
+	require.Nil(t, got[1].LLMMaxTokens)
+	require.Equal(t, map[string]any{}, got[1].LLMUsageDetails)
+	require.Equal(t, map[string]any{}, got[1].LLMCostDetails)
+	require.Nil(t, got[1].LLMTimeToFirstTokenNano)
+	require.Nil(t, got[1].LLMPromptID)
+	require.Nil(t, got[1].LLMPromptName)
+	require.Nil(t, got[1].LLMPromptVersion)
+}
+
 func TestListRootArrivedTraces_OnlyReturnsTracesWithRootSpan(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)

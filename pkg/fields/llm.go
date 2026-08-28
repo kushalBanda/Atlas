@@ -12,6 +12,31 @@ const (
 	attrInputTokens      = "gen_ai.usage.input_tokens"
 	attrOutputTokens     = "gen_ai.usage.output_tokens"
 	attrCost             = "gen_ai.usage.cost"
+	attrTemperature      = "gen_ai.request.temperature"
+	attrTopP             = "gen_ai.request.top_p"
+	attrMaxTokens        = "gen_ai.request.max_tokens"
+	attrTimeToFirstToken = "gen_ai.usage.time_to_first_token_ms"
+	attrPromptID         = "gen_ai.prompt.id"
+	attrPromptName       = "gen_ai.prompt.name"
+	attrPromptVersion    = "gen_ai.prompt.version"
+)
+
+// usageDetailKeys and costDetailKeys are gen_ai.* attributes beyond the
+// core prompt/completion/cost fields, collected into LLMUsageDetails and
+// LLMCostDetails respectively when present. Provider-specific (cache reads,
+// reasoning tokens, ...), so kept as an open map rather than more columns.
+var (
+	usageDetailKeys = map[string]string{
+		"gen_ai.usage.cache_read_tokens":  "cache_read_tokens",
+		"gen_ai.usage.cache_write_tokens": "cache_write_tokens",
+		"gen_ai.usage.reasoning_tokens":   "reasoning_tokens",
+		"gen_ai.usage.audio_tokens":       "audio_tokens",
+	}
+	costDetailKeys = map[string]string{
+		"gen_ai.usage.cost.input":  "input",
+		"gen_ai.usage.cost.output": "output",
+		"gen_ai.usage.cost.cache":  "cache",
+	}
 )
 
 // ExtractLLMFields populates s's typed LLM columns from gen_ai.* keys in
@@ -29,6 +54,49 @@ func ExtractLLMFields(s *storage.Span) {
 	if v, ok := floatAttr(s.Attributes, attrCost); ok {
 		s.LLMCost = &v
 	}
+	if v, ok := floatAttr(s.Attributes, attrTemperature); ok {
+		s.LLMTemperature = &v
+	}
+	if v, ok := floatAttr(s.Attributes, attrTopP); ok {
+		s.LLMTopP = &v
+	}
+	if v, ok := intAttr(s.Attributes, attrMaxTokens); ok {
+		s.LLMMaxTokens = &v
+	}
+	if v, ok := floatAttr(s.Attributes, attrTimeToFirstToken); ok {
+		nanos := int64(v * 1e6)
+		s.LLMTimeToFirstTokenNano = &nanos
+	}
+	if v := stringAttr(s.Attributes, attrPromptID); v != "" {
+		s.LLMPromptID = &v
+	}
+	if v := stringAttr(s.Attributes, attrPromptName); v != "" {
+		s.LLMPromptName = &v
+	}
+	if v, ok := intAttr(s.Attributes, attrPromptVersion); ok {
+		s.LLMPromptVersion = &v
+	}
+	if m := detailMap(s.Attributes, usageDetailKeys); m != nil {
+		s.LLMUsageDetails = m
+	}
+	if m := detailMap(s.Attributes, costDetailKeys); m != nil {
+		s.LLMCostDetails = m
+	}
+}
+
+// detailMap collects attrs[attrKey] under outKey for every entry in keys
+// that's actually present, or nil if none are.
+func detailMap(attrs map[string]any, keys map[string]string) map[string]any {
+	var out map[string]any
+	for attrKey, outKey := range keys {
+		if v, ok := attrs[attrKey]; ok {
+			if out == nil {
+				out = make(map[string]any)
+			}
+			out[outKey] = v
+		}
+	}
+	return out
 }
 
 // stringAttr returns the first non-empty string value found under keys.

@@ -14,10 +14,21 @@ CREATE TABLE IF NOT EXISTS spans (
 	status_code          VARCHAR NOT NULL,
 	attributes           VARCHAR,
 	resource_attributes  VARCHAR,
+	span_kind            VARCHAR,
+	level                VARCHAR,
 	llm_model            VARCHAR,
 	llm_prompt_tokens    BIGINT,
 	llm_completion_tokens BIGINT,
 	llm_cost             DOUBLE,
+	llm_temperature      DOUBLE,
+	llm_top_p            DOUBLE,
+	llm_max_tokens       BIGINT,
+	llm_usage_details    VARCHAR,
+	llm_cost_details     VARCHAR,
+	llm_time_to_first_token_nano BIGINT,
+	llm_prompt_id        VARCHAR,
+	llm_prompt_name      VARCHAR,
+	llm_prompt_version   BIGINT,
 	PRIMARY KEY (trace_id, span_id)
 );
 

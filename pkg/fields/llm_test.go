@@ -65,6 +65,57 @@ func TestExtractLLMFields(t *testing.T) {
 	}
 }
 
+func TestExtractLLMFields_ModelParametersAndPromptLinkage(t *testing.T) {
+	t.Parallel()
+
+	s := storage.Span{Attributes: map[string]any{
+		"gen_ai.request.temperature":          float64(0.7),
+		"gen_ai.request.top_p":                float64(0.9),
+		"gen_ai.request.max_tokens":           float64(512),
+		"gen_ai.usage.time_to_first_token_ms": float64(120),
+		"gen_ai.prompt.id":                    "pr-1",
+		"gen_ai.prompt.name":                  "support-agent",
+		"gen_ai.prompt.version":               float64(3),
+	}}
+
+	ExtractLLMFields(&s)
+
+	require.Equal(t, ptrFloat(0.7), s.LLMTemperature)
+	require.Equal(t, ptrFloat(0.9), s.LLMTopP)
+	require.Equal(t, ptrInt(512), s.LLMMaxTokens)
+	require.Equal(t, ptrInt(120*1e6), s.LLMTimeToFirstTokenNano)
+	require.Equal(t, ptr("pr-1"), s.LLMPromptID)
+	require.Equal(t, ptr("support-agent"), s.LLMPromptName)
+	require.Equal(t, ptrInt(3), s.LLMPromptVersion)
+}
+
+func TestExtractLLMFields_UsageAndCostDetails(t *testing.T) {
+	t.Parallel()
+
+	t.Run("collects known keys present", func(t *testing.T) {
+		t.Parallel()
+		s := storage.Span{Attributes: map[string]any{
+			"gen_ai.usage.cache_read_tokens": float64(4),
+			"gen_ai.usage.cost.input":        float64(0.002),
+		}}
+
+		ExtractLLMFields(&s)
+
+		require.Equal(t, map[string]any{"cache_read_tokens": float64(4)}, s.LLMUsageDetails)
+		require.Equal(t, map[string]any{"input": float64(0.002)}, s.LLMCostDetails)
+	})
+
+	t.Run("none present stays nil", func(t *testing.T) {
+		t.Parallel()
+		s := storage.Span{Attributes: map[string]any{"gen_ai.request.model": "gpt-4"}}
+
+		ExtractLLMFields(&s)
+
+		require.Nil(t, s.LLMUsageDetails)
+		require.Nil(t, s.LLMCostDetails)
+	})
+}
+
 func ptr(s string) *string        { return &s }
 func ptrInt(i int64) *int64       { return &i }
 func ptrFloat(f float64) *float64 { return &f }
