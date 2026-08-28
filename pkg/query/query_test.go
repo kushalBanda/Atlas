@@ -16,10 +16,13 @@ import (
 
 type fakeStore struct {
 	storage.Store
-	trace    *storage.Trace
-	traceErr error
-	spans    []storage.Span
-	spansErr error
+	trace     *storage.Trace
+	traceErr  error
+	spans     []storage.Span
+	spansErr  error
+	traces    []storage.Trace
+	tracesErr error
+	gotFilter storage.TraceFilter
 }
 
 func (f *fakeStore) GetTrace(_ context.Context, _ string) (*storage.Trace, error) {
@@ -36,10 +39,85 @@ func (f *fakeStore) GetTraceSpans(_ context.Context, _ string) ([]storage.Span, 
 	return f.spans, nil
 }
 
+func (f *fakeStore) ListTraces(_ context.Context, filter storage.TraceFilter) ([]storage.Trace, error) {
+	f.gotFilter = filter
+	if f.tracesErr != nil {
+		return nil, f.tracesErr
+	}
+	return f.traces, nil
+}
+
 func requestWithTraceID(traceID string) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/traces/"+traceID, nil)
 	req.SetPathValue("trace_id", traceID)
 	return req
+}
+
+func TestHandlers_ListTraces_ReturnsSummariesWithDuration(t *testing.T) {
+	t.Parallel()
+	first := time.Now().UTC()
+	last := first.Add(2 * time.Second)
+	store := &fakeStore{traces: []storage.Trace{{TraceID: "t1", FirstSeen: first, LastSeen: last}}}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	h.ListTraces(w, httptest.NewRequest(http.MethodGet, "/traces", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp traceListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Traces, 1)
+	assert.Equal(t, "t1", resp.Traces[0].TraceID)
+	assert.Equal(t, (2 * time.Second).Nanoseconds(), resp.Traces[0].DurationNano)
+}
+
+func TestHandlers_ListTraces_ParsesFilterParams(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/traces?has_root_cause=true&since=2026-01-01T00:00:00Z&limit=5", nil)
+	h.ListTraces(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.gotFilter.HasRootCause)
+	assert.True(t, *store.gotFilter.HasRootCause)
+	require.NotNil(t, store.gotFilter.Since)
+	assert.Equal(t, 2026, store.gotFilter.Since.Year())
+	assert.Equal(t, 5, store.gotFilter.Limit)
+}
+
+func TestHandlers_ListTraces_InvalidParams_Returns400(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{"bad has_root_cause", "has_root_cause=maybe"},
+		{"bad since", "since=not-a-date"},
+		{"bad limit", "limit=-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := NewHandlers(&fakeStore{})
+			w := httptest.NewRecorder()
+			h.ListTraces(w, httptest.NewRequest(http.MethodGet, "/traces?"+tt.query, nil))
+			require.Equal(t, http.StatusBadRequest, w.Code)
+		})
+	}
+}
+
+func TestHandlers_ListTraces_StoreError_Returns500(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{tracesErr: assert.AnError}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	h.ListTraces(w, httptest.NewRequest(http.MethodGet, "/traces", nil))
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestHandlers_GetTrace_ReturnsWaterfallAndVerdict(t *testing.T) {

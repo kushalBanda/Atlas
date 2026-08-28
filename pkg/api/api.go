@@ -35,6 +35,7 @@ func NewRouter(queryHandlers *query.Handlers) *Router {
 
 	// Core routes are registered through the same Handle path as plugin
 	// modules so a module can never silently shadow one of these.
+	mustHandle(r, "GET /traces", http.HandlerFunc(queryHandlers.ListTraces))
 	mustHandle(r, "GET /traces/{trace_id}", http.HandlerFunc(queryHandlers.GetTrace))
 	mustHandle(r, "GET /healthz", http.HandlerFunc(healthz))
 
