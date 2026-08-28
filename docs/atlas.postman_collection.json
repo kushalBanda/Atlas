@@ -1,0 +1,90 @@
+{
+  "info": {
+    "name": "Atlas",
+    "description": "Atlas observability platform: OTLP ingest + query API. Ingest listens on 4318, query API on 8080 (both 127.0.0.1 by default). Run 'Send trace' first, copy trace_id from its response header or the sample payload, then use it in the trace-by-id request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "ingest_url", "value": "http://127.0.0.1:4318" },
+    { "key": "api_url", "value": "http://127.0.0.1:8080" },
+    { "key": "trace_id", "value": "5b8aa5a2d2c872e8321cf37308d69df2" },
+    { "key": "span_id", "value": "051581bf3cb55c13" }
+  ],
+  "item": [
+    {
+      "name": "Ingest",
+      "item": [
+        {
+          "name": "Send trace (OTLP/HTTP JSON)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{ingest_url}}/v1/traces", "host": ["{{ingest_url}}"], "path": ["v1", "traces"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resourceSpans\": [\n    {\n      \"resource\": {\n        \"attributes\": [\n          { \"key\": \"service.name\", \"value\": { \"stringValue\": \"postman-test-service\" } }\n        ]\n      },\n      \"scopeSpans\": [\n        {\n          \"spans\": [\n            {\n              \"traceId\": \"{{trace_id}}\",\n              \"spanId\": \"{{span_id}}\",\n              \"name\": \"root-span\",\n              \"startTimeUnixNano\": \"1700000000000000000\",\n              \"endTimeUnixNano\": \"1700000000500000000\",\n              \"status\": { \"code\": 1 }\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Send LLM span (llmagent module)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{ingest_url}}/v1/traces", "host": ["{{ingest_url}}"], "path": ["v1", "traces"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"resourceSpans\": [\n    {\n      \"resource\": {\n        \"attributes\": [\n          { \"key\": \"service.name\", \"value\": { \"stringValue\": \"postman-test-service\" } },\n          { \"key\": \"atlas.module\", \"value\": { \"stringValue\": \"llmagent\" } }\n        ]\n      },\n      \"scopeSpans\": [\n        {\n          \"spans\": [\n            {\n              \"traceId\": \"{{trace_id}}\",\n              \"spanId\": \"051581bf3cb55c14\",\n              \"parentSpanId\": \"{{span_id}}\",\n              \"name\": \"llm.chat_completion\",\n              \"startTimeUnixNano\": \"1700000000100000000\",\n              \"endTimeUnixNano\": \"1700000000400000000\",\n              \"status\": { \"code\": 1 },\n              \"attributes\": [\n                { \"key\": \"gen_ai.request.model\", \"value\": { \"stringValue\": \"nvidia/nemotron-3.5-content-safety:free\" } },\n                { \"key\": \"gen_ai.prompt\", \"value\": { \"stringValue\": \"hello\" } },\n                { \"key\": \"gen_ai.completion\", \"value\": { \"stringValue\": \"hi there\" } },\n                { \"key\": \"gen_ai.usage.prompt_tokens\", \"value\": { \"intValue\": \"5\" } },\n                { \"key\": \"gen_ai.usage.completion_tokens\", \"value\": { \"intValue\": \"3\" } }\n              ]\n            }\n          ]\n        }\n      ]\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Query",
+      "item": [
+        {
+          "name": "List traces",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{api_url}}/traces?limit=20",
+              "host": ["{{api_url}}"],
+              "path": ["traces"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "has_root_cause", "value": "true", "disabled": true },
+                { "key": "since", "value": "2026-01-01T00:00:00Z", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get trace by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{api_url}}/traces/{{trace_id}}",
+              "host": ["{{api_url}}"],
+              "path": ["traces", "{{trace_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Discovery targets",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{api_url}}/discovery/targets", "host": ["{{api_url}}"], "path": ["discovery", "targets"] }
+          }
+        },
+        {
+          "name": "Healthz",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{api_url}}/healthz", "host": ["{{api_url}}"], "path": ["healthz"] }
+          }
+        }
+      ]
+    }
+  ]
+}
