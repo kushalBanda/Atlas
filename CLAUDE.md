@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Go development
 
-Before any Go coding, review, debugging, troubleshooting, or setup task, load the `samber/cc-skills-golang@golang-how-to` skill first it routes to whichever other Go skills the task needs.
+Before any Go coding, review, debugging, troubleshooting, or setup task, load the `samber/cc-skills-golang@golang-how-to` skill first. It routes to the other Go skills the task needs.
 
 ## Required Go skills
 
-The following Go skills from `samber/cc-skills-golang` MUST always be applied when working on this project. Load them at the start of every Go-related task, regardless of whether the user explicitly mentions them.
+Load these skills at the start of every Go-related task, even if the user does not mention them:
 
 - `samber/cc-skills-golang@golang-error-handling`
 - `samber/cc-skills-golang@golang-testing`
@@ -18,7 +18,20 @@ The following Go skills from `samber/cc-skills-golang` MUST always be applied wh
 
 ## Project state
 
-Atlas is a greenfield observability platform. The backend has a folder layout but almost no code yet. `cmd/atlas-server/main.go` is a println stub. `pkg/api`, `pkg/config`, `pkg/ingest`, `pkg/query`, `pkg/storage` hold only `.gitkeep` files. `pkg/plugin`, `pkg/discovery`, and `pkg/rootcause` do not exist yet but are part of the planned layout. Check `docs/plans/atlas-v1/00-status.md` for the current gate status before you plan new work.
+Atlas is an observability platform. The backend has a working v1: all 8 planned slices are done (see `docs/plans/atlas/00-status.md`). 85+ tests pass across 12 packages, clean under `go vet` and `go test -race`.
+
+Implemented packages:
+- `pkg/storage` — DuckDB-backed `Store` interface (`duckdb.go`, `schema.go`).
+- `pkg/ingest` — OTLP/HTTP receive (JSON and protobuf).
+- `pkg/plugin` — module registry (`Registry`, `Module` interface); `otelcore` and `llmagent` modules registered.
+- `pkg/discovery` — process-scan, Docker, and K8s discoverers behind one `Discoverer` interface, plus `Handler` for `GET /discovery/targets`.
+- `pkg/rootcause` — trace-close `Watcher` and `Score` heuristic.
+- `pkg/query`, `pkg/api`, `pkg/config` — query API, HTTP router, YAML config loader.
+- `cmd/atlas-server` — entrypoint, plus `supervise.go` (recover+backoff wrapper for the watcher goroutine).
+
+`frontend/` is a placeholder. No UI work is planned yet.
+
+Known gaps (intentional, not bugs): `ListTraces`/logs/metrics query endpoints, kubeconfig-based K8s discovery, discovery-to-collector auto-wiring, a real load test. See `docs/design-considerations.md`.
 
 ## Commands
 
@@ -28,42 +41,48 @@ make run     # go run ./cmd/atlas-server
 make test    # go test ./cmd/... ./pkg/...
 ```
 
-Run a single test with the normal Go flag, for example:
+Run a single test:
 ```
 go test ./pkg/storage/... -run TestName
 ```
 
+Race-check and vet before calling work done:
+```
+go test -race ./cmd/... ./pkg/...
+go vet ./...
+```
+
+Server takes a `-config` flag (default `./conf/example.yaml`); it falls back to `config.Default()` with a warning if the file is absent, but errors hard if the file exists and fails to parse or validate.
+
 ## Design source of truth
 
-The real architecture lives in planning docs, not code. Read these before you add or change backend code:
+The real architecture lives in planning docs, not just code. Read these before you add or change backend code:
 
-- `docs/plans/atlas-v1/00-status.md` — current gate status and locked decisions. Read this first.
-- `docs/plans/atlas-v1/02-architecture.md` — package layout, endpoints, data model, request flow.
-- `docs/plans/atlas-v1/01-product.md`, `docs/plans/atlas-v1/03-program-design.md` — product and program design gates.
+- `docs/plans/atlas/00-status.md` — current gate/slice status, locked decisions, and backtrack history. Read this first.
+- `docs/plans/atlas/02-architecture.md` — package layout, endpoints, data model, request flow.
+- `docs/plans/atlas/01-product.md`, `docs/plans/atlas/03-program-design.md` — product and program design gates.
 - `docs/superpowers/specs/2026-08-25-hld-system-design.md` — high-level design. This wins on conflict with other docs.
 - `docs/superpowers/specs/2026-08-24-folder-structure-design.md` — folder layout rationale.
 - `docs/superpowers/specs/2026-08-24-language-choice-design.md` — stack choice (Go + TS + OTel).
+- `docs/design-considerations.md` — documented deviations from the plan docs and known gaps, with reasoning.
+- `CONTEXT.md` — domain glossary (root span, trace close, verdict, self-time).
 
-## Architecture (planned, from the HLD)
+## Architecture
 
 Atlas ingests OpenTelemetry traces, stores them in embedded DuckDB, and finds the likely root-cause span in a trace at trace-close time.
 
-Packages, by role:
-- `pkg/storage` — DuckDB implementation behind a storage interface. ClickHouse stays behind the same interface for later, not built now.
-- `pkg/ingest` — OTLP receive (HTTP/gRPC), shared by all plugin modules.
-- `pkg/plugin` — module registry interface. `otelcore` and `llmagent` modules register through it.
-- `pkg/discovery` — auto-discovery of services to monitor. Build order: process-scan, then Docker, then K8s. Runs on a timer, separate from the request path; it only configures what the OTel Collector should send.
-- `pkg/rootcause` — ingest-time trace-tree scoring. A trace-close watcher detects no new spans for a configured window, marks the trace closed, then runs a rule-based heuristic (self-time threshold, default 30%, unvalidated) and writes the verdict onto the trace row.
-- `pkg/query` — query API: logs/metrics/traces plus root-cause verdict.
-- `pkg/api` — HTTP routing; wires each module's routes at startup.
-- `pkg/config` — config loader (discovery rules, storage path, thresholds).
-- `cmd/atlas-server` — entrypoint: load config, init storage, register modules, start ingest + API servers.
+Request flow: OTLP spans arrive at ingest (`POST /v1/traces`, the fixed OTLP/HTTP path — not Atlas's own API, so it keeps its version prefix even though the rest of Atlas's API dropped `/v1/`). Ingest hands each batch to `plugin.Registry.Dispatch`, which groups spans by their `atlas.module` resource attribute (default `otelcore`) and calls the matching `Module.HandleSpans`. Each module writes through the shared `storage.Store` interface. A trace-close `Watcher` polls after every write batch and on an idle-timeout fallback, closes eligible traces, and writes the root-cause verdict back onto the `traces` row via `MarkTraceClosed`.
 
-Data model (DuckDB):
-- `spans` — one row per span: `trace_id, span_id, parent_span_id, service_name, name, start_time, end_time, status, attributes (JSON), resource_attributes (JSON)`.
-- `traces` — one row per trace, written/updated at trace-close: `trace_id, first_seen, last_seen, closed_at, likely_root_cause_span_id, reason, self_time_pct`. The root-cause verdict is a write-back onto this table, not a separate one.
-- `logs`, `metrics` — minimal OTel-standard tables for non-trace signals, not central to root-cause work.
+Trace-close triggers, in order:
+1. **Primary**: the root span (`parent_span_id IS NULL`) has arrived — `ListRootArrivedTraces`.
+2. **Fallback**: no new span for the configured idle window (default 30s) and no root span ever arrived (crashed-hop case) — `ListStaleOpenTraces`.
 
-External dependencies: the OTel Collector runs as a reused upstream binary/image, configured (not vendored) via `deploy/otel-collector/`. Atlas's ingest endpoint only receives already-collected OTLP from it. The Docker discoverer talks to the local Docker socket; the K8s discoverer talks to the Kubernetes API (in-cluster or kubeconfig). Single-user, no auth, no other third-party services.
+Root-cause heuristic (`pkg/rootcause`, unvalidated, default self-time threshold 30%): earliest error span wins; otherwise the span with the highest self-time as a percent of trace duration, if it clears the threshold.
 
-Scope note: v1 is backend only. No UI screens are planned yet; the `frontend/` folder is a placeholder for future work.
+Plugin module contract (`pkg/plugin/plugin.go`): a `Module` declares its own storage tables (`RegisterSchema`), its own HTTP routes (`RegisterRoutes`), and a span handler (`HandleSpans`). `otelcore` and `llmagent` are structurally identical — both write through the same `storage.Store` — and are distinguished only by `Name()` and by which spans route to them via `atlas.module`. Registering a new module needs no changes to the `Module` interface itself.
+
+Storage (`pkg/storage/storage.go`): `Store` is backend-agnostic. DuckDB is the only implementation now; ClickHouse can implement the same interface later without touching call sites. `Span.Attributes`/`ResourceAttributes` are stored as `VARCHAR` JSON text, not DuckDB's native `JSON` type — the driver scans native `JSON` columns back as `map[string]interface{}` instead of a string, which breaks `Scan` into `*string`. `Span` also carries LLM-specific fields (`LLMModel`, `LLMPromptTokens`, `LLMCompletionTokens`, `LLMCost`, `LLMPrompt`, `LLMCompletion`) populated only by `llmagent`; all other modules leave them nil.
+
+Discovery (`pkg/discovery`): one `Discoverer` interface, three implementations layered in build order — process-scan (`lsof`-backed), Docker (talks to the local Docker socket), K8s (in-cluster auth only; a no-op outside a cluster, not an error). `RunAll` merges results across discoverers and isolates a single discoverer's failure from the rest. Discovery runs on its own timer, separate from the request path, and only reports targets (`GET /discovery/targets`) — it does not auto-wire the OTel Collector.
+
+External dependencies: the OTel Collector runs as a reused upstream binary/image, configured (not vendored) via `deploy/otel-collector/`. Atlas's ingest endpoint only receives already-collected OTLP from it. Single-user, no auth, no other third-party services.
