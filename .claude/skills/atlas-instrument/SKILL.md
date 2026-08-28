@@ -27,6 +27,10 @@ Set these span attributes on any span representing an LLM call, so Atlas parses 
 | `gen_ai.prompt` | string | full prompt text |
 | `gen_ai.completion` | string | full completion text |
 
+`gen_ai.request.model`/`response.model`, prompt/completion token counts, and `gen_ai.usage.cost` are extracted into typed, queryable columns (`LLMModel`, `LLMPromptTokens`, `LLMCompletionTokens`, `LLMCost`). `gen_ai.prompt`/`gen_ai.completion` are full-text and not duplicated into typed columns — still readable, just from the span's `attributes` JSON, not a dedicated field.
+
+This extraction is attribute-driven, not module-gated: it runs on every span regardless of `atlas.module`, so tagging a span `llmagent` is not required for `gen_ai.*` extraction to happen — only `gen_ai.*` keys being present on the span matters.
+
 Non-LLM spans (tool calls, agent steps) don't need these — set whatever attributes make sense (`tool.name`, `tool.arguments`, `tool.output`, ...), they land as-is in the span's attributes JSON.
 
 ## Minimal setup (Python example — adapt per language, same OTel SDK concepts apply everywhere)
