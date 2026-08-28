@@ -21,13 +21,12 @@ type Span struct {
 	Attributes         map[string]any
 	ResourceAttributes map[string]any
 
-	// LLM fields, populated only by llmagent.HandleSpans; nil otherwise.
+	// LLM fields, populated by pkg/fields.ExtractLLMFields; nil otherwise.
+	// Prompt/completion text isn't duplicated here — read it from Attributes.
 	LLMModel            *string
 	LLMPromptTokens     *int64
 	LLMCompletionTokens *int64
 	LLMCost             *float64
-	LLMPrompt           *string
-	LLMCompletion       *string
 }
 
 // Trace is one row per trace, written/updated at trace-close time.

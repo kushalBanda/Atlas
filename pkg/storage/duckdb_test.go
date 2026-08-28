@@ -63,15 +63,13 @@ func TestWriteAndGetTraceSpans_LLMFieldsRoundTrip(t *testing.T) {
 	promptTokens := int64(12)
 	completionTokens := int64(34)
 	cost := 0.0056
-	prompt := "hello"
-	completion := "world"
 
 	spans := []Span{
 		{
 			TraceID: "t1", SpanID: "llm-span", ServiceName: "svc-a", Name: "chat",
 			StartTime: start, EndTime: start.Add(time.Second), StatusCode: "ok",
 			LLMModel: &model, LLMPromptTokens: &promptTokens, LLMCompletionTokens: &completionTokens,
-			LLMCost: &cost, LLMPrompt: &prompt, LLMCompletion: &completion,
+			LLMCost: &cost,
 		},
 		{
 			TraceID: "t1", SpanID: "plain-span", ParentSpanID: "llm-span", ServiceName: "svc-a", Name: "op",
@@ -89,16 +87,12 @@ func TestWriteAndGetTraceSpans_LLMFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, &promptTokens, got[0].LLMPromptTokens)
 	require.Equal(t, &completionTokens, got[0].LLMCompletionTokens)
 	require.Equal(t, &cost, got[0].LLMCost)
-	require.Equal(t, &prompt, got[0].LLMPrompt)
-	require.Equal(t, &completion, got[0].LLMCompletion)
 
 	require.Equal(t, "plain-span", got[1].SpanID)
 	require.Nil(t, got[1].LLMModel)
 	require.Nil(t, got[1].LLMPromptTokens)
 	require.Nil(t, got[1].LLMCompletionTokens)
 	require.Nil(t, got[1].LLMCost)
-	require.Nil(t, got[1].LLMPrompt)
-	require.Nil(t, got[1].LLMCompletion)
 }
 
 func TestListRootArrivedTraces_OnlyReturnsTracesWithRootSpan(t *testing.T) {

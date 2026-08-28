@@ -18,8 +18,6 @@ CREATE TABLE IF NOT EXISTS spans (
 	llm_prompt_tokens    BIGINT,
 	llm_completion_tokens BIGINT,
 	llm_cost             DOUBLE,
-	llm_prompt           VARCHAR,
-	llm_completion       VARCHAR,
 	PRIMARY KEY (trace_id, span_id)
 );
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"atlas/pkg/api"
+	"atlas/pkg/fields"
 	"atlas/pkg/storage"
 )
 
@@ -53,10 +54,13 @@ func (r *Registry) Register(m Module) error {
 
 var errDuplicateModuleName = errors.New("duplicate module name")
 
-// Dispatch routes spans to the Module named by each span's atlas.module
-// resource attribute (default "otelcore" if absent). A span naming an
-// unregistered module is dropped and logged, not silently ignored.
+// Dispatch runs pkg/fields extraction over every span (attribute-driven, not
+// atlas.module-gated), then routes spans to the Module named by each span's
+// atlas.module resource attribute (default "otelcore" if absent). A span
+// naming an unregistered module is dropped and logged, not silently ignored.
 func (r *Registry) Dispatch(ctx context.Context, spans []storage.Span) error {
+	fields.Apply(spans)
+
 	grouped := make(map[string][]storage.Span)
 	for _, s := range spans {
 		grouped[targetModule(s)] = append(grouped[targetModule(s)], s)
