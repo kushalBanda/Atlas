@@ -34,9 +34,7 @@ export function Home() {
             One pipeline for server code and AI calls.
           </h2>
           <p className="mt-1.5 max-w-2xl text-[13px] text-text-muted">
-            Atlas ingests OTLP from any service — HTTP handlers, database calls, LLM
-            prompts — and finds the root cause automatically. Every span, every model
-            call, one trace.
+            Atlas ingests OTLP from any service, HTTP handlers, database calls, LLM prompts, and finds the root cause automatically: every span, every model call, one trace.
           </p>
         </div>
 

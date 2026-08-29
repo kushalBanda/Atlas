@@ -4,19 +4,28 @@ import { buildSpanTree, flattenSpanTree } from "../../lib/spanTree";
 import { formatDurationNano } from "../../lib/duration";
 import { SpanRow } from "./SpanRow";
 import { TimelineBar } from "./TimelineBar";
+import { Minimap } from "./Minimap";
 
 const TICK_COUNT = 5;
 
 export interface WaterfallProps {
   spans: Span[];
   selectedSpanId?: string | null;
+  rootCauseSpanId?: string | null;
   onSelectSpan: (spanId: string) => void;
 }
 
-export function Waterfall({ spans, selectedSpanId, onSelectSpan }: WaterfallProps) {
+export function Waterfall({ spans, selectedSpanId, rootCauseSpanId, onSelectSpan }: WaterfallProps) {
   const [filter, setFilter] = useState("");
   const timelineRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState<{ x: number; pct: number } | null>(null);
+
+  function jumpToSpan(spanId: string) {
+    scrollRef.current
+      ?.querySelector(`[data-span-id="${spanId}"]`)
+      ?.scrollIntoView({ block: "center" });
+  }
 
   // Memoized on the spans array reference so selecting a span (parent
   // re-render) doesn't re-walk the tree every time (Gate 3, perf note).
@@ -52,6 +61,8 @@ export function Waterfall({ spans, selectedSpanId, onSelectSpan }: WaterfallProp
         />
       </div>
 
+      <Minimap rows={rows} traceStartMs={traceStartMs} traceDurationMs={traceDurationMs} onJump={jumpToSpan} />
+
       <div className="flex flex-shrink-0">
         <div className="w-[420px] flex-shrink-0 border-b border-r border-border bg-canvas px-3 py-1.5 text-[11px] uppercase tracking-wide text-text-faint">
           Span
@@ -78,13 +89,15 @@ export function Waterfall({ spans, selectedSpanId, onSelectSpan }: WaterfallProp
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-y-auto overflow-x-hidden">
+      <div ref={scrollRef} className="flex flex-1 overflow-y-auto overflow-x-hidden">
         <div className="flex w-[420px] flex-shrink-0 flex-col border-r border-border bg-surface">
           {filteredRows.map((node) => (
             <SpanRow
               key={node.span.SpanID}
               node={node}
               selected={node.span.SpanID === selectedSpanId}
+              isRootCause={node.span.SpanID === rootCauseSpanId}
+              dim={Boolean(rootCauseSpanId) && node.span.SpanID !== rootCauseSpanId}
               onClick={onSelectSpan}
             />
           ))}
@@ -132,6 +145,9 @@ export function Waterfall({ spans, selectedSpanId, onSelectSpan }: WaterfallProp
               span={node.span}
               traceStartMs={traceStartMs}
               traceDurationMs={traceDurationMs}
+              selfTimeNano={node.selfTimeNano}
+              isRootCause={node.span.SpanID === rootCauseSpanId}
+              dim={Boolean(rootCauseSpanId) && node.span.SpanID !== rootCauseSpanId}
             />
           ))}
         </div>

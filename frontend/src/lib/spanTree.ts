@@ -4,6 +4,16 @@ export interface SpanNode {
   span: Span;
   children: SpanNode[];
   depth: number;
+  selfTimeNano: number;
+}
+
+// Self-time = span duration minus each direct child's own duration, clamped
+// at 0. Mirrors pkg/rootcause/heuristic.go's selfTime exactly (naive
+// subtraction, no overlap merge) so the bar matches the verdict math.
+function selfTimeNanoOf(span: Span, children: Span[]): number {
+  let self = span.duration_nano;
+  for (const child of children) self -= child.duration_nano;
+  return Math.max(self, 0);
 }
 
 // Roots = ParentSpanID === "" OR the parent isn't in this span list at all
@@ -27,10 +37,11 @@ export function buildSpanTree(spans: Span[]): SpanNode[] {
   }
 
   function build(span: Span, depth: number): SpanNode {
-    const children = (childrenOf.get(span.SpanID) ?? [])
+    const directChildren = childrenOf.get(span.SpanID) ?? [];
+    const children = directChildren
       .sort((a, b) => a.StartTime.localeCompare(b.StartTime))
       .map((child) => build(child, depth + 1));
-    return { span, children, depth };
+    return { span, children, depth, selfTimeNano: selfTimeNanoOf(span, directChildren) };
   }
 
   return roots
