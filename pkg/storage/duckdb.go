@@ -296,6 +296,10 @@ func (d *DuckDB) ListTraces(ctx context.Context, f TraceFilter) ([]Trace, error)
 		query += " AND last_seen >= ?"
 		args = append(args, *f.Since)
 	}
+	if f.Until != nil {
+		query += " AND last_seen <= ?"
+		args = append(args, *f.Until)
+	}
 	query += " ORDER BY last_seen DESC"
 	if f.Limit > 0 {
 		query += " LIMIT ?"
@@ -338,6 +342,80 @@ func (d *DuckDB) GetTrace(ctx context.Context, traceID string) (*Trace, error) {
 		return nil, fmt.Errorf("querying trace %s: %w", traceID, err)
 	}
 	return &t, nil
+}
+
+// GetStats returns the Home-page aggregate over traces/spans in f's
+// since/until window. f.HasRootCause and f.Limit are ignored.
+func (d *DuckDB) GetStats(ctx context.Context, f TraceFilter) (*Stats, error) {
+	traceQuery := `SELECT COUNT(*), COUNT(likely_root_cause_span_id) FROM traces WHERE 1=1`
+	var args []any
+	if f.Since != nil {
+		traceQuery += " AND last_seen >= ?"
+		args = append(args, *f.Since)
+	}
+	if f.Until != nil {
+		traceQuery += " AND last_seen <= ?"
+		args = append(args, *f.Until)
+	}
+
+	var stats Stats
+	if err := d.db.QueryRowContext(ctx, traceQuery, args...).Scan(&stats.TotalTraces, &stats.TracesWithRootCause); err != nil {
+		return nil, fmt.Errorf("counting traces: %w", err)
+	}
+
+	spanQuery := `SELECT COUNT(*) FROM spans s JOIN traces t ON t.trace_id = s.trace_id WHERE 1=1`
+	spanArgs := append([]any{}, args...)
+	if f.Since != nil {
+		spanQuery += " AND t.last_seen >= ?"
+		spanArgs = append(spanArgs, *f.Since)
+	}
+	if f.Until != nil {
+		spanQuery += " AND t.last_seen <= ?"
+		spanArgs = append(spanArgs, *f.Until)
+	}
+	if err := d.db.QueryRowContext(ctx, spanQuery, spanArgs...).Scan(&stats.TotalSpans); err != nil {
+		return nil, fmt.Errorf("counting spans: %w", err)
+	}
+
+	modelQuery := `
+		SELECT s.llm_model, COUNT(*), COALESCE(SUM(s.llm_prompt_tokens), 0),
+			COALESCE(SUM(s.llm_completion_tokens), 0), COALESCE(SUM(s.llm_cost), 0)
+		FROM spans s
+		JOIN traces t ON t.trace_id = s.trace_id
+		WHERE s.llm_model IS NOT NULL
+	`
+	modelArgs := append([]any{}, args...)
+	if f.Since != nil {
+		modelQuery += " AND t.last_seen >= ?"
+		modelArgs = append(modelArgs, *f.Since)
+	}
+	if f.Until != nil {
+		modelQuery += " AND t.last_seen <= ?"
+		modelArgs = append(modelArgs, *f.Until)
+	}
+	modelQuery += " GROUP BY s.llm_model ORDER BY SUM(s.llm_cost) DESC"
+
+	rows, err := d.db.QueryContext(ctx, modelQuery, modelArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("aggregating llm stats: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var m ModelStat
+		if err := rows.Scan(&m.Model, &m.Calls, &m.PromptTokens, &m.CompletionTokens, &m.Cost); err != nil {
+			return nil, fmt.Errorf("scanning model stat: %w", err)
+		}
+		stats.LLM.Models = append(stats.LLM.Models, m)
+		stats.LLM.TotalPromptTokens += m.PromptTokens
+		stats.LLM.TotalCompletionTokens += m.CompletionTokens
+		stats.LLM.TotalCost += m.Cost
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating model stats: %w", err)
+	}
+
+	return &stats, nil
 }
 
 type rowScanner interface {

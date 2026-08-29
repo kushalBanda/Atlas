@@ -13,20 +13,17 @@ const RELATIVE_OPTIONS = [
 
 export interface TimeRangePickerProps {
   sinceMs: number;
-  onSinceChange: (ms: number) => void;
+  untilMs?: number;
+  onRangeChange: (sinceMs: number, untilMs?: number) => void;
 }
 
-function toDatetimeLocalValue(ms: number): string {
-  const d = new Date(Date.now() - ms);
+function toDatetimeLocalValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function labelForSince(sinceMs: number): string {
-  const match = RELATIVE_OPTIONS.find((opt) => opt.ms === sinceMs);
-  if (match) return match.label;
-  const start = new Date(Date.now() - sinceMs);
-  return start.toLocaleString(undefined, {
+function formatAbsolute(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -34,10 +31,20 @@ function labelForSince(sinceMs: number): string {
   });
 }
 
-export function TimeRangePicker({ sinceMs, onSinceChange }: TimeRangePickerProps) {
+function labelForRange(sinceMs: number, untilMs?: number): string {
+  if (untilMs !== undefined) {
+    return `${formatAbsolute(Date.now() - sinceMs)} → ${formatAbsolute(untilMs)}`;
+  }
+  const match = RELATIVE_OPTIONS.find((opt) => opt.ms === sinceMs);
+  if (match) return match.label;
+  return formatAbsolute(Date.now() - sinceMs);
+}
+
+export function TimeRangePicker({ sinceMs, untilMs, onRangeChange }: TimeRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
-  const [customValue, setCustomValue] = useState(() => toDatetimeLocalValue(sinceMs));
+  const [startValue, setStartValue] = useState(() => toDatetimeLocalValue(new Date(Date.now() - sinceMs)));
+  const [endValue, setEndValue] = useState(() => toDatetimeLocalValue(untilMs ? new Date(untilMs) : new Date()));
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,16 +70,16 @@ export function TimeRangePicker({ sinceMs, onSinceChange }: TimeRangePickerProps
   }, [open]);
 
   function applyRelative(ms: number) {
-    onSinceChange(ms);
+    onRangeChange(ms, undefined);
     setOpen(false);
     setCustomMode(false);
   }
 
   function applyCustom() {
-    const startMs = new Date(customValue).getTime();
-    if (Number.isNaN(startMs)) return;
-    const ms = Math.max(Date.now() - startMs, 1000);
-    onSinceChange(ms);
+    const startMs = new Date(startValue).getTime();
+    const endMs = new Date(endValue).getTime();
+    if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) return;
+    onRangeChange(Math.max(Date.now() - startMs, 1000), endMs);
     setOpen(false);
     setCustomMode(false);
   }
@@ -84,25 +91,25 @@ export function TimeRangePicker({ sinceMs, onSinceChange }: TimeRangePickerProps
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs text-text-muted hover:border-text-faint"
       >
-        Since
-        <span className="font-plex-mono text-text-primary">{labelForSince(sinceMs)}</span>
+        {untilMs === undefined && "Since"}
+        <span className="font-plex-mono text-text-primary">{labelForRange(sinceMs, untilMs)}</span>
       </button>
 
       <div
         className={`grid transition-[grid-template-rows,opacity] duration-150 ease-out motion-reduce:transition-none ${
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         }`}
-        style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 20 }}
+        style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 20, width: 220 }}
       >
         <div className="overflow-hidden">
-          <div className="w-[180px] rounded-md border border-border bg-elevated py-1 shadow-lg">
+          <div className="w-[220px] rounded-md border border-border bg-elevated py-1 shadow-lg">
             {RELATIVE_OPTIONS.map((opt) => (
               <button
                 key={opt.label}
                 type="button"
                 onClick={() => applyRelative(opt.ms)}
                 className={`flex w-full items-center px-3 py-1.5 text-left text-xs hover:bg-surface ${
-                  opt.ms === sinceMs ? "text-accent" : "text-text-muted"
+                  untilMs === undefined && opt.ms === sinceMs ? "text-accent" : "text-text-muted"
                 }`}
               >
                 Last {opt.label}
@@ -115,16 +122,28 @@ export function TimeRangePicker({ sinceMs, onSinceChange }: TimeRangePickerProps
                 onClick={() => setCustomMode(true)}
                 className="flex w-full items-center px-3 py-1.5 text-left text-xs text-text-muted hover:bg-surface"
               >
-                Custom
+                Custom range
               </button>
             ) : (
               <div className="flex flex-col gap-1.5 px-3 py-1.5">
-                <input
-                  type="datetime-local"
-                  value={customValue}
-                  onChange={(e) => setCustomValue(e.target.value)}
-                  className="rounded border border-border bg-canvas px-1.5 py-1 text-[11px] text-text-primary outline-none"
-                />
+                <label className="flex flex-col gap-0.5 text-[10px] uppercase tracking-wide text-text-faint">
+                  Start
+                  <input
+                    type="datetime-local"
+                    value={startValue}
+                    onChange={(e) => setStartValue(e.target.value)}
+                    className="rounded border border-border bg-canvas px-1.5 py-1 text-[11px] text-text-primary outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5 text-[10px] uppercase tracking-wide text-text-faint">
+                  End
+                  <input
+                    type="datetime-local"
+                    value={endValue}
+                    onChange={(e) => setEndValue(e.target.value)}
+                    className="rounded border border-border bg-canvas px-1.5 py-1 text-[11px] text-text-primary outline-none"
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={applyCustom}

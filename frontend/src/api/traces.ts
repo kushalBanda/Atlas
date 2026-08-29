@@ -9,6 +9,8 @@ export interface TraceFilter {
   // render-phase useMemo is an impurity the linter correctly flags, and
   // computing it fresh per fetch is more correct anyway.
   sinceMs?: number;
+  // Absolute upper bound (ms epoch), set only by a custom start+end range.
+  untilMs?: number;
   limit?: number; // internal, driven by pagination, never user-set directly
 }
 
@@ -19,6 +21,9 @@ function filterToParams(filter: TraceFilter): Record<string, string> {
   }
   if (filter.sinceMs !== undefined) {
     params.since = new Date(Date.now() - filter.sinceMs).toISOString();
+  }
+  if (filter.untilMs !== undefined) {
+    params.until = new Date(filter.untilMs).toISOString();
   }
   if (filter.limit !== undefined) params.limit = String(filter.limit);
   return params;

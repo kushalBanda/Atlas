@@ -39,11 +39,13 @@ function rootCauseToFilterValue(rootCause: RootCauseFilter): boolean | undefined
 export function TraceList() {
   const navigate = useNavigate();
   const [sinceMs, setSinceMs] = useState(60 * 60 * 1000); // default 1h
+  const [untilMs, setUntilMs] = useState<number | undefined>(undefined);
   const [rootCause, setRootCause] = useState<RootCauseFilter>("any");
   const [page, setPage] = useState(1);
 
   const { data, isPending, isError, refetch } = useTraces({
     sinceMs,
+    untilMs,
     hasRootCause: rootCauseToFilterValue(rootCause),
     limit: BATCH_LIMIT,
   });
@@ -70,7 +72,13 @@ export function TraceList() {
 
       <FilterBar
         sinceMs={sinceMs}
-        onSinceChange={(ms) => handleFilterChange(() => setSinceMs(ms))}
+        untilMs={untilMs}
+        onRangeChange={(ms, until) =>
+          handleFilterChange(() => {
+            setSinceMs(ms);
+            setUntilMs(until);
+          })
+        }
         rootCause={rootCause}
         onRootCauseChange={(value) => handleFilterChange(() => setRootCause(value))}
       />

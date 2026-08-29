@@ -289,6 +289,84 @@ func TestListTraces_FiltersByHasRootCause(t *testing.T) {
 	require.Equal(t, "closed", traces[0].TraceID)
 }
 
+func TestListTraces_FiltersByUntil(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	old := time.Now().UTC().Add(-2 * time.Hour)
+	recent := time.Now().UTC()
+
+	require.NoError(t, db.WriteSpans(ctx, []Span{
+		{TraceID: "old", SpanID: "root", ParentSpanID: "", ServiceName: "s", Name: "n", StartTime: old, EndTime: old, StatusCode: "ok"},
+		{TraceID: "recent", SpanID: "root", ParentSpanID: "", ServiceName: "s", Name: "n", StartTime: recent, EndTime: recent, StatusCode: "ok"},
+	}))
+
+	cutoff := old.Add(time.Hour)
+	traces, err := db.ListTraces(ctx, TraceFilter{Until: &cutoff})
+	require.NoError(t, err)
+	require.Len(t, traces, 1)
+	require.Equal(t, "old", traces[0].TraceID)
+}
+
+func TestGetStats_EmptyStore(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	stats, err := db.GetStats(ctx, TraceFilter{})
+	require.NoError(t, err)
+	require.Equal(t, int64(0), stats.TotalTraces)
+	require.Equal(t, int64(0), stats.TracesWithRootCause)
+	require.Equal(t, int64(0), stats.TotalSpans)
+	require.Empty(t, stats.LLM.Models)
+}
+
+func TestGetStats_CountsAndLLMBreakdown(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	model := "gpt-5.6"
+	promptTokens, completionTokens := int64(10), int64(20)
+	cost := 0.5
+
+	otherModel := "claude-opus-5"
+	otherPromptTokens, otherCompletionTokens := int64(5), int64(7)
+	otherCost := 1.5
+
+	require.NoError(t, db.WriteSpans(ctx, []Span{
+		{TraceID: "t1", SpanID: "root", ServiceName: "s", Name: "n", StartTime: now, EndTime: now, StatusCode: "ok"},
+		{
+			TraceID: "t1", SpanID: "llm1", ParentSpanID: "root", ServiceName: "s", Name: "chat",
+			StartTime: now, EndTime: now, StatusCode: "ok",
+			LLMModel: &model, LLMPromptTokens: &promptTokens, LLMCompletionTokens: &completionTokens, LLMCost: &cost,
+		},
+		{TraceID: "t2", SpanID: "root", ServiceName: "s", Name: "n", StartTime: now, EndTime: now, StatusCode: "ok"},
+		{
+			TraceID: "t2", SpanID: "llm2", ParentSpanID: "root", ServiceName: "s", Name: "chat",
+			StartTime: now, EndTime: now, StatusCode: "ok",
+			LLMModel: &otherModel, LLMPromptTokens: &otherPromptTokens, LLMCompletionTokens: &otherCompletionTokens, LLMCost: &otherCost,
+		},
+	}))
+	require.NoError(t, db.MarkTraceClosed(ctx, "t1", CloseVerdict{SpanID: "root", Reason: "r", SelfTimePct: 0.5}))
+
+	stats, err := db.GetStats(ctx, TraceFilter{})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), stats.TotalTraces)
+	require.Equal(t, int64(1), stats.TracesWithRootCause)
+	require.Equal(t, int64(4), stats.TotalSpans)
+
+	require.InDelta(t, 2.0, stats.LLM.TotalCost, 0.0001)
+	require.Equal(t, int64(15), stats.LLM.TotalPromptTokens)
+	require.Equal(t, int64(27), stats.LLM.TotalCompletionTokens)
+	require.Len(t, stats.LLM.Models, 2)
+	// Ordered by cost descending: otherModel (1.5) before model (0.5).
+	require.Equal(t, otherModel, stats.LLM.Models[0].Model)
+	require.Equal(t, int64(1), stats.LLM.Models[0].Calls)
+	require.Equal(t, model, stats.LLM.Models[1].Model)
+}
+
 func TestGetTrace_UnknownTraceReturnsNotFound(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)

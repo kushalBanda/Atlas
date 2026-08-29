@@ -68,7 +68,34 @@ type CloseVerdict struct {
 type TraceFilter struct {
 	HasRootCause *bool
 	Since        *time.Time
+	Until        *time.Time
 	Limit        int
+}
+
+// Stats is the Home-page aggregate: trace counts plus LLM usage, computed
+// over traces matching f's since/until window (HasRootCause/Limit ignored).
+type Stats struct {
+	TotalTraces         int64
+	TracesWithRootCause int64
+	TotalSpans          int64
+	LLM                 LLMStats
+}
+
+// LLMStats aggregates over spans with llm_model IS NOT NULL.
+type LLMStats struct {
+	TotalCost             float64
+	TotalPromptTokens     int64
+	TotalCompletionTokens int64
+	Models                []ModelStat
+}
+
+// ModelStat is the per-model breakdown row within LLMStats.
+type ModelStat struct {
+	Model            string
+	Calls            int64
+	PromptTokens     int64
+	CompletionTokens int64
+	Cost             float64
 }
 
 // Store is the backend-agnostic persistence interface.
@@ -91,6 +118,9 @@ type Store interface {
 
 	ListTraces(ctx context.Context, f TraceFilter) ([]Trace, error)
 	GetTrace(ctx context.Context, traceID string) (*Trace, error)
+
+	// GetStats returns the Home-page aggregate, filtered by f.Since/f.Until.
+	GetStats(ctx context.Context, f TraceFilter) (*Stats, error)
 
 	Close() error
 }

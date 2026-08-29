@@ -47,6 +47,7 @@ func NewRouter(queryHandlers *query.Handlers, staticDir string) *Router {
 	// modules so a module can never silently shadow one of these.
 	mustHandle(r, "GET /traces", http.HandlerFunc(queryHandlers.ListTraces))
 	mustHandle(r, "GET /traces/{trace_id}", http.HandlerFunc(queryHandlers.GetTrace))
+	mustHandle(r, "GET /stats", http.HandlerFunc(queryHandlers.GetStats))
 	mustHandle(r, "GET /healthz", http.HandlerFunc(healthz))
 
 	if staticDir != "" {

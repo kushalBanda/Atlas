@@ -16,13 +16,16 @@ import (
 
 type fakeStore struct {
 	storage.Store
-	trace     *storage.Trace
-	traceErr  error
-	spans     []storage.Span
-	spansErr  error
-	traces    []storage.Trace
-	tracesErr error
-	gotFilter storage.TraceFilter
+	trace          *storage.Trace
+	traceErr       error
+	spans          []storage.Span
+	spansErr       error
+	traces         []storage.Trace
+	tracesErr      error
+	gotFilter      storage.TraceFilter
+	stats          *storage.Stats
+	statsErr       error
+	gotStatsFilter storage.TraceFilter
 }
 
 func (f *fakeStore) GetTrace(_ context.Context, _ string) (*storage.Trace, error) {
@@ -45,6 +48,14 @@ func (f *fakeStore) ListTraces(_ context.Context, filter storage.TraceFilter) ([
 		return nil, f.tracesErr
 	}
 	return f.traces, nil
+}
+
+func (f *fakeStore) GetStats(_ context.Context, filter storage.TraceFilter) (*storage.Stats, error) {
+	f.gotStatsFilter = filter
+	if f.statsErr != nil {
+		return nil, f.statsErr
+	}
+	return f.stats, nil
 }
 
 func requestWithTraceID(traceID string) *http.Request {
@@ -77,7 +88,7 @@ func TestHandlers_ListTraces_ParsesFilterParams(t *testing.T) {
 	h := NewHandlers(store)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/traces?has_root_cause=true&since=2026-01-01T00:00:00Z&limit=5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/traces?has_root_cause=true&since=2026-01-01T00:00:00Z&until=2026-01-02T00:00:00Z&limit=5", nil)
 	h.ListTraces(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -85,6 +96,8 @@ func TestHandlers_ListTraces_ParsesFilterParams(t *testing.T) {
 	assert.True(t, *store.gotFilter.HasRootCause)
 	require.NotNil(t, store.gotFilter.Since)
 	assert.Equal(t, 2026, store.gotFilter.Since.Year())
+	require.NotNil(t, store.gotFilter.Until)
+	assert.Equal(t, 2, store.gotFilter.Until.Day())
 	assert.Equal(t, 5, store.gotFilter.Limit)
 }
 
@@ -96,6 +109,7 @@ func TestHandlers_ListTraces_InvalidParams_Returns400(t *testing.T) {
 	}{
 		{"bad has_root_cause", "has_root_cause=maybe"},
 		{"bad since", "since=not-a-date"},
+		{"bad until", "until=not-a-date"},
 		{"bad limit", "limit=-1"},
 	}
 	for _, tt := range tests {
@@ -181,4 +195,56 @@ func TestHandlers_GetTrace_MissingTraceIDPathValue_Returns400(t *testing.T) {
 	h.GetTrace(w, requestWithTraceID(""))
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandlers_GetStats_ReturnsStoreStats(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{stats: &storage.Stats{TotalTraces: 3, TracesWithRootCause: 1, TotalSpans: 9}}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	h.GetStats(w, httptest.NewRequest(http.MethodGet, "/stats", nil))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got storage.Stats
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, int64(3), got.TotalTraces)
+	assert.Equal(t, int64(1), got.TracesWithRootCause)
+	assert.Equal(t, int64(9), got.TotalSpans)
+}
+
+func TestHandlers_GetStats_ParsesFilterParams(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{stats: &storage.Stats{}}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/stats?since=2026-01-01T00:00:00Z&until=2026-01-02T00:00:00Z", nil)
+	h.GetStats(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.gotStatsFilter.Since)
+	require.NotNil(t, store.gotStatsFilter.Until)
+}
+
+func TestHandlers_GetStats_InvalidSince_Returns400(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	h.GetStats(w, httptest.NewRequest(http.MethodGet, "/stats?since=not-a-time", nil))
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandlers_GetStats_StoreError_Returns500(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{statsErr: assert.AnError}
+	h := NewHandlers(store)
+
+	w := httptest.NewRecorder()
+	h.GetStats(w, httptest.NewRequest(http.MethodGet, "/stats", nil))
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }

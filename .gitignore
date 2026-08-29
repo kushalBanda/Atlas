@@ -155,3 +155,4 @@ atlas.duckdb
 # Secrets
 scripts/ai-gateway/
 docs/plans/atlas-frontend/
+.playwright-mcp/

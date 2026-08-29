@@ -58,6 +58,28 @@ export interface TraceResponse {
   spans: Span[];
 }
 
+export interface ModelStat {
+  Model: string;
+  Calls: number;
+  PromptTokens: number;
+  CompletionTokens: number;
+  Cost: number;
+}
+
+export interface LLMStats {
+  TotalCost: number;
+  TotalPromptTokens: number;
+  TotalCompletionTokens: number;
+  Models: ModelStat[] | null;
+}
+
+export interface Stats {
+  TotalTraces: number;
+  TracesWithRootCause: number;
+  TotalSpans: number;
+  LLM: LLMStats;
+}
+
 export interface DiscoveryRule {
   Port: number;
   ProcessMatch: string;

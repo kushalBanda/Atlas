@@ -4,17 +4,18 @@ export type RootCauseFilter = "any" | "found" | "not-found";
 
 export interface FilterBarProps {
   sinceMs: number;
-  onSinceChange: (ms: number) => void;
+  untilMs?: number;
+  onRangeChange: (sinceMs: number, untilMs?: number) => void;
   rootCause: RootCauseFilter;
   onRootCauseChange: (value: RootCauseFilter) => void;
 }
 
 // Time filter only, no Limit control (Gate 1 decision: page size is a
 // pagination concern, not a user-facing filter).
-export function FilterBar({ sinceMs, onSinceChange, rootCause, onRootCauseChange }: FilterBarProps) {
+export function FilterBar({ sinceMs, untilMs, onRangeChange, rootCause, onRootCauseChange }: FilterBarProps) {
   return (
     <div className="flex items-center gap-2 border-b border-border px-5 py-2.5">
-      <TimeRangePicker sinceMs={sinceMs} onSinceChange={onSinceChange} />
+      <TimeRangePicker sinceMs={sinceMs} untilMs={untilMs} onRangeChange={onRangeChange} />
 
       <div className="flex gap-0.5">
         {(
