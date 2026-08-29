@@ -145,6 +145,16 @@ export function SpanDetailPanel({ span, onClose }: SpanDetailPanelProps) {
   const [resizing, setResizing] = useState(false);
   const widthRef = useRef(width);
   widthRef.current = width;
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open, onClose]);
 
   useEffect(() => {
     if (!resizing) return;
@@ -172,6 +182,7 @@ export function SpanDetailPanel({ span, onClose }: SpanDetailPanelProps) {
 
   return (
     <div
+      ref={panelRef}
       className={`fixed right-0 top-0 bottom-0 flex flex-col border-l border-border bg-surface shadow-[-8px_0_24px_rgba(0,0,0,0.4)] transition-transform duration-200 ease-out motion-reduce:transition-none ${
         open ? "translate-x-0" : "translate-x-full"
       }`}

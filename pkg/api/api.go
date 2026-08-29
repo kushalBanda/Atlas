@@ -8,9 +8,20 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"atlas/pkg/query"
 )
+
+// spaRoutePrefixes are the frontend's own route paths that collide with an
+// Atlas API path of the same shape (GET /traces/{trace_id} vs the SPA's
+// /traces/:traceId page). A browser hard-navigation (or refresh) at one of
+// these deep links must render the SPA shell, not the raw JSON the same
+// path returns to a fetch() call. Mirrors vite.config.ts's htmlNavBypass,
+// which solves the identical ambiguity in dev via the same Accept-header
+// check against the same two prefixes.
+var spaRoutePrefixes = []string{"/traces", "/discovery"}
 
 // RouteRegistrar lets a plugin module mount its HTTP handlers at
 // registration time. Router implements this. Collision on pattern is an
@@ -23,8 +34,9 @@ type RouteRegistrar interface {
 // Router is Atlas's HTTP router: mounts query + health endpoints directly
 // and accepts further routes from plugin modules through RouteRegistrar.
 type Router struct {
-	mux      *http.ServeMux
-	patterns map[string]bool
+	mux       *http.ServeMux
+	patterns  map[string]bool
+	staticDir string
 }
 
 // NewRouter mounts Atlas's own query + health endpoints. Atlas's own API
@@ -39,8 +51,9 @@ type Router struct {
 // cmd/atlas-server/main.go for a missing -config file.
 func NewRouter(queryHandlers *query.Handlers, staticDir string) *Router {
 	r := &Router{
-		mux:      http.NewServeMux(),
-		patterns: make(map[string]bool),
+		mux:       http.NewServeMux(),
+		patterns:  make(map[string]bool),
+		staticDir: staticDir,
 	}
 
 	// Core routes are registered through the same Handle path as plugin
@@ -53,6 +66,7 @@ func NewRouter(queryHandlers *query.Handlers, staticDir string) *Router {
 	if staticDir != "" {
 		if _, err := os.Stat(staticDir); err != nil {
 			slog.Warn("static dir not found, frontend will not be served", "static_dir", staticDir, "error", err)
+			r.staticDir = ""
 		} else {
 			// Registered through Handle too, so it can never silently
 			// shadow a plugin module's route registered after this call.
@@ -84,7 +98,32 @@ func (r *Router) Handle(pattern string, h http.Handler) error {
 
 // ServeHTTP implements http.Handler.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if r.isSPANavigation(req) {
+		http.ServeFile(w, req, filepath.Join(r.staticDir, "index.html"))
+		return
+	}
 	r.mux.ServeHTTP(w, req)
+}
+
+// isSPANavigation reports whether req is a browser hard-navigation (or
+// refresh) at a path the SPA owns but that also matches one of Atlas's own
+// API route patterns (GET /traces/{trace_id}, /discovery). A fetch()/XHR
+// call from the already-loaded React app sends Accept: application/json
+// and must still reach the real handler; only a browser page load, whose
+// Accept header lists text/html, gets redirected to the SPA shell instead.
+func (r *Router) isSPANavigation(req *http.Request) bool {
+	if r.staticDir == "" || req.Method != http.MethodGet {
+		return false
+	}
+	if !strings.Contains(req.Header.Get("Accept"), "text/html") {
+		return false
+	}
+	for _, prefix := range spaRoutePrefixes {
+		if req.URL.Path == prefix || strings.HasPrefix(req.URL.Path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {

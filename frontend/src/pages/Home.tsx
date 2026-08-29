@@ -33,7 +33,7 @@ export function Home() {
           <h2 className="m-0 text-base font-semibold">
             One pipeline for server code and AI calls.
           </h2>
-          <p className="mt-1.5 max-w-2xl text-[13px] text-text-muted">
+          <p className="mt-1.5 whitespace-nowrap text-[13px] text-text-muted">
             Atlas ingests OTLP from any service, HTTP handlers, database calls, LLM prompts, and finds the root cause automatically: every span, every model call, one trace.
           </p>
         </div>
