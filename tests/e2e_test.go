@@ -40,7 +40,7 @@ func TestEndToEnd_MultiHopTrace_ProducesExpectedRootCauseVerdict(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
 	queryHandlers := query.NewHandlers(store)
-	router := api.NewRouter(queryHandlers)
+	router := api.NewRouter(queryHandlers, "")
 
 	registry := plugin.NewRegistry(store, router)
 	require.NoError(t, registry.Register(otelcore.New(store)))

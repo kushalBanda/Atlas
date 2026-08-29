@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Self-hosted IBM Plex, no runtime Google Fonts call. Weights kept to
+   what the UI actually uses: 400/500/600 sans, 400 mono. */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+
+/* Design tokens, locked in docs/plans/atlas-frontend/design/Design.md and
+   the approved mockups under docs/plans/atlas-frontend/mockups/. Tailwind
+   v4 reads color/font utilities straight off these @theme vars, so a
+   token changed here is the single source of truth for both raw CSS and
+   Tailwind classes (bg-canvas, text-primary, font-plex-mono, ...). */
+@theme {
+  --color-canvas: #141413;
+  --color-surface: #1c1b1a;
+  --color-elevated: #252422;
+  --color-border: #332f2b;
+
+  --color-text-primary: #f0ede6;
+  --color-text-muted: #a39e93;
+  --color-text-faint: #6f6a60;
+
+  --color-accent: #d97757;
+  --color-accent-dim: #4a2f22;
+
+  --color-error: #e5484d;
+  --color-error-dim: #3a1e1f;
+  --color-error-row: #2a1d1c;
+
+  --color-warning: #d9a441;
+
+  --font-plex-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-plex-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-text-primary);
+  font-family: var(--font-plex-sans);
+  font-size: 13px;
+  margin: 0;
+}

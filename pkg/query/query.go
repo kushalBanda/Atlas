@@ -57,7 +57,7 @@ func newTraceSummary(t storage.Trace) traceSummary {
 	return traceSummary{Trace: t, DurationNano: t.LastSeen.Sub(t.FirstSeen).Nanoseconds()}
 }
 
-// ListTraces handles GET /traces?has_root_cause=&since=&limit=. All
+// ListTraces handles GET /traces?has_root_cause=&since=&until=&limit=. All
 // parameters are optional; an unparseable one is a 400, not a silent ignore.
 func (h *Handlers) ListTraces(w http.ResponseWriter, r *http.Request) {
 	var f storage.TraceFilter
@@ -77,6 +77,14 @@ func (h *Handlers) ListTraces(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.Since = &t
+	}
+	if v := r.URL.Query().Get("until"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid until, want RFC3339")
+			return
+		}
+		f.Until = &t
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -135,6 +143,38 @@ func (h *Handlers) GetTrace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, traceResponse{Trace: trace, Spans: spanViews})
+}
+
+// GetStats handles GET /stats?since=&until=. Powers the Home page: trace
+// counts plus LLM cost/token aggregate, no has_root_cause/limit filtering.
+func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
+	var f storage.TraceFilter
+
+	if v := r.URL.Query().Get("since"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid since, want RFC3339")
+			return
+		}
+		f.Since = &t
+	}
+	if v := r.URL.Query().Get("until"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid until, want RFC3339")
+			return
+		}
+		f.Until = &t
+	}
+
+	stats, err := h.store.GetStats(r.Context(), f)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "get stats failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, stats)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

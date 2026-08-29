@@ -30,6 +30,7 @@ import (
 
 const (
 	defaultConfigPath = "./conf/example.yaml"
+	defaultStaticDir  = "./frontend/dist"
 	shutdownTimeout   = 10 * time.Second
 
 	// Tick intervals aren't part of pkg/config (only thresholds/paths are,
@@ -50,6 +51,7 @@ func run() error {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	configPath := flag.String("config", defaultConfigPath, "path to config file")
+	staticDir := flag.String("static-dir", defaultStaticDir, "path to built frontend assets; empty or missing disables static serving")
 	flag.Parse()
 
 	cfg, err := loadConfig(*configPath)
@@ -68,7 +70,7 @@ func run() error {
 	}()
 
 	queryHandlers := query.NewHandlers(store)
-	apiMux := api.NewRouter(queryHandlers)
+	apiMux := api.NewRouter(queryHandlers, *staticDir)
 
 	registry := plugin.NewRegistry(store, apiMux)
 	if err := registry.Register(otelcore.New(store)); err != nil {
