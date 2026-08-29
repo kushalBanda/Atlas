@@ -151,3 +151,7 @@ docs/notes/basic.md
 # Build artifacts
 /atlas-server
 atlas.duckdb
+
+# Secrets
+scripts/ai-gateway/
+docs/plans/atlas-frontend/

@@ -18,20 +18,23 @@ Load these skills at the start of every Go-related task, even if the user does n
 
 ## Project state
 
-Atlas is an observability platform. The backend has a working v1: all 8 planned slices are done (see `docs/plans/atlas/00-status.md`). 85+ tests pass across 12 packages, clean under `go vet` and `go test -race`.
+Atlas is an observability platform. The backend has a working v1: all 8 planned slices are done (see `docs/plans/atlas/00-status.md`). 110+ tests pass across 12 packages, clean under `go vet` and `go test -race`.
 
 Implemented packages:
 - `pkg/storage` — DuckDB-backed `Store` interface (`duckdb.go`, `schema.go`).
 - `pkg/ingest` — OTLP/HTTP receive (JSON and protobuf).
 - `pkg/plugin` — module registry (`Registry`, `Module` interface); `otelcore` and `llmagent` modules registered.
+- `pkg/fields` — modular per-span field extractors (LLM fields today, `kind.go`/`llm.go`), run unconditionally in `Registry.Dispatch` on every span regardless of `atlas.module`.
 - `pkg/discovery` — process-scan, Docker, and K8s discoverers behind one `Discoverer` interface, plus `Handler` for `GET /discovery/targets`.
 - `pkg/rootcause` — trace-close `Watcher` and `Score` heuristic.
-- `pkg/query`, `pkg/api`, `pkg/config` — query API, HTTP router, YAML config loader.
+- `pkg/query`, `pkg/api`, `pkg/config` — query API (`GET /traces`, `GET /traces/{trace_id}`), HTTP router, YAML config loader.
 - `cmd/atlas-server` — entrypoint, plus `supervise.go` (recover+backoff wrapper for the watcher goroutine).
+
+`scripts/ai-gateway/` — a standalone Python FastAPI reference client (not part of the Go module) that instruments an OpenRouter-backed LLM call and agent/tool-call flow with OTel, exporting to Atlas's ingest endpoint. Backs the `.claude/skills/atlas-instrument/SKILL.md` skill, which documents Atlas's ingest/attribute contract for instrumenting any external service.
 
 `frontend/` is a placeholder. No UI work is planned yet.
 
-Known gaps (intentional, not bugs): `ListTraces`/logs/metrics query endpoints, kubeconfig-based K8s discovery, discovery-to-collector auto-wiring, a real load test. See `docs/design-considerations.md`.
+Known gaps (intentional, not bugs): logs/metrics query endpoints, kubeconfig-based K8s discovery, discovery-to-collector auto-wiring, a real load test. See `docs/design-considerations.md`.
 
 ## Commands
 
@@ -71,7 +74,7 @@ The real architecture lives in planning docs, not just code. Read these before y
 
 Atlas ingests OpenTelemetry traces, stores them in embedded DuckDB, and finds the likely root-cause span in a trace at trace-close time.
 
-Request flow: OTLP spans arrive at ingest (`POST /v1/traces`, the fixed OTLP/HTTP path — not Atlas's own API, so it keeps its version prefix even though the rest of Atlas's API dropped `/v1/`). Ingest hands each batch to `plugin.Registry.Dispatch`, which groups spans by their `atlas.module` resource attribute (default `otelcore`) and calls the matching `Module.HandleSpans`. Each module writes through the shared `storage.Store` interface. A trace-close `Watcher` polls after every write batch and on an idle-timeout fallback, closes eligible traces, and writes the root-cause verdict back onto the `traces` row via `MarkTraceClosed`.
+Request flow: OTLP spans arrive at ingest (`POST /v1/traces`, the fixed OTLP/HTTP path — not Atlas's own API, so it keeps its version prefix even though the rest of Atlas's API dropped `/v1/`). Ingest hands each batch to `plugin.Registry.Dispatch`, which first runs `pkg/fields.Apply` over every span (typed-field extraction, unconditional), then groups spans by their `atlas.module` resource attribute (default `otelcore`) and calls the matching `Module.HandleSpans`. Each module writes through the shared `storage.Store` interface. A trace-close `Watcher` polls after every write batch and on an idle-timeout fallback, closes eligible traces, and writes the root-cause verdict back onto the `traces` row via `MarkTraceClosed`.
 
 Trace-close triggers, in order:
 1. **Primary**: the root span (`parent_span_id IS NULL`) has arrived — `ListRootArrivedTraces`.
@@ -79,9 +82,9 @@ Trace-close triggers, in order:
 
 Root-cause heuristic (`pkg/rootcause`, unvalidated, default self-time threshold 30%): earliest error span wins; otherwise the span with the highest self-time as a percent of trace duration, if it clears the threshold.
 
-Plugin module contract (`pkg/plugin/plugin.go`): a `Module` declares its own storage tables (`RegisterSchema`), its own HTTP routes (`RegisterRoutes`), and a span handler (`HandleSpans`). `otelcore` and `llmagent` are structurally identical — both write through the same `storage.Store` — and are distinguished only by `Name()` and by which spans route to them via `atlas.module`. Registering a new module needs no changes to the `Module` interface itself.
+Plugin module contract (`pkg/plugin/plugin.go`): a `Module` declares its own storage tables (`RegisterSchema`), its own HTTP routes (`RegisterRoutes`), and a span handler (`HandleSpans`). `otelcore` and `llmagent` are structurally identical — both write through the same `storage.Store` — and are distinguished only by `Name()` and by which spans route to them via `atlas.module`. Registering a new module needs no changes to the `Module` interface itself. Field extraction (below) is intentionally *not* part of this per-module split — it runs once in `Registry.Dispatch`, attribute-driven, before spans reach any module's `HandleSpans`.
 
-Storage (`pkg/storage/storage.go`): `Store` is backend-agnostic. DuckDB is the only implementation now; ClickHouse can implement the same interface later without touching call sites. `Span.Attributes`/`ResourceAttributes` are stored as `VARCHAR` JSON text, not DuckDB's native `JSON` type — the driver scans native `JSON` columns back as `map[string]interface{}` instead of a string, which breaks `Scan` into `*string`. `Span` also carries LLM-specific fields (`LLMModel`, `LLMPromptTokens`, `LLMCompletionTokens`, `LLMCost`, `LLMPrompt`, `LLMCompletion`) populated only by `llmagent`; all other modules leave them nil.
+Storage (`pkg/storage/storage.go`): `Store` is backend-agnostic. DuckDB is the only implementation now; ClickHouse can implement the same interface later without touching call sites. `Span.Attributes`/`ResourceAttributes` are stored as `VARCHAR` JSON text, not DuckDB's native `JSON` type — the driver scans native `JSON` columns back as `map[string]interface{}` instead of a string, which breaks `Scan` into `*string`. `Span` also carries typed fields (`SpanKind`, `Level`, and the `LLM*` fields — model, tokens, cost, temperature/top_p/max_tokens, usage/cost detail maps, time-to-first-token, prompt id/name/version) populated by `pkg/fields` extractors from self-describing attributes (`gen_ai.*`, `openinference.span.kind`, `level`) on *any* span, not gated by `atlas.module`. Prompt/completion text is deliberately not duplicated into a typed column — read it from `Attributes` (`gen_ai.prompt`/`gen_ai.completion`) instead; only the fields worth aggregating in SQL got a typed column.
 
 Discovery (`pkg/discovery`): one `Discoverer` interface, three implementations layered in build order — process-scan (`lsof`-backed), Docker (talks to the local Docker socket), K8s (in-cluster auth only; a no-op outside a cluster, not an error). `RunAll` merges results across discoverers and isolates a single discoverer's failure from the rest. Discovery runs on its own timer, separate from the request path, and only reports targets (`GET /discovery/targets`) — it does not auto-wire the OTel Collector.
 
