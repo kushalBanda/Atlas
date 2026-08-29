@@ -32,7 +32,7 @@ Implemented packages:
 
 `scripts/ai-gateway/` — a standalone Python FastAPI reference client (not part of the Go module) that instruments an OpenRouter-backed LLM call and agent/tool-call flow with OTel, exporting to Atlas's ingest endpoint. Backs the `.claude/skills/atlas-instrument/SKILL.md` skill, which documents Atlas's ingest/attribute contract for instrumenting any external service.
 
-`frontend/` is a placeholder. No UI work is planned yet.
+`frontend/` has a complete v1 (all 3 screens, wired to the real backend). See `frontend/CLAUDE.md` for frontend-specific commands and architecture.
 
 Known gaps (intentional, not bugs): logs/metrics query endpoints, kubeconfig-based K8s discovery, discovery-to-collector auto-wiring, a real load test. See `docs/design-considerations.md`.
 

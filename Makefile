@@ -7,7 +7,7 @@ frontend:
 build: frontend
 	go build ./cmd/... ./pkg/...
 
-run:
+run: frontend
 	go run ./cmd/atlas-server
 
 test:

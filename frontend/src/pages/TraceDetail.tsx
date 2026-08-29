@@ -53,9 +53,7 @@ export function TraceDetail() {
 
       <Waterfall spans={data.spans} selectedSpanId={selectedSpanId} onSelectSpan={setSelectedSpanId} />
 
-      {selectedSpan && (
-        <SpanDetailPanel span={selectedSpan} onClose={() => setSelectedSpanId(null)} />
-      )}
+      <SpanDetailPanel span={selectedSpan} onClose={() => setSelectedSpanId(null)} />
     </main>
   );
 }

@@ -46,23 +46,32 @@ function JsonNode({ label, value, depth }: { label: string; value: JsonValue; de
         className="flex w-full items-center gap-1.5 py-1 text-left leading-relaxed hover:bg-elevated"
         style={{ paddingLeft: depth * 14 }}
       >
-        <span className="w-3 flex-shrink-0 text-text-faint">{open ? "▾" : "▸"}</span>
+        <span
+          className={`inline-block w-3 flex-shrink-0 text-text-faint transition-transform duration-150 ease-out ${
+            open ? "rotate-0" : "-rotate-90"
+          }`}
+        >
+          ▾
+        </span>
         <span className="text-text-faint">{label}:</span>
         <span className="text-text-faint">
           {bracket[0]}
           {!open && `${count} ${isArray ? "items" : "keys"}${bracket[1]}`}
         </span>
       </button>
-      {open && (
-        <>
+      <div
+        className="grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none"
+        style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
           {entries.map(([k, v]) => (
             <JsonNode key={k} label={isArray ? "" : k} value={v} depth={depth + 1} />
           ))}
           <div className="text-text-faint leading-relaxed" style={{ paddingLeft: depth * 14 }}>
             {bracket[1]}
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   );
 }
