@@ -38,6 +38,25 @@ This extraction is attribute-driven, not module-gated: it runs on every span reg
 
 Non-LLM spans (tool calls, agent steps) don't need these — set whatever attributes make sense (`tool.name`, `tool.arguments`, `tool.output`, ...), they land as-is in the span's attributes JSON.
 
+## Attributes for agent-run grouping
+
+Set these to group spans into a run and session in Atlas's Runs/Sessions
+views. Each has two accepted spellings — the plain key or the `gen_ai.*`
+equivalent — first one present wins:
+
+| Attribute | Alternate key | Meaning |
+|---|---|---|
+| `agent.run.id` | `gen_ai.agent.run.id` | groups spans into one agent run. **This is the field that matters**: any span carrying it becomes part of a run, and a run can span multiple traces (e.g. an agent that hands off to a second service, starting a new trace). |
+| `session.id` | `gen_ai.conversation.id` | groups runs into one session (a multi-turn conversation or user session) |
+| `user.id` | `gen_ai.user.id` | attributes a run/session to a user |
+| `agent.name` | `gen_ai.agent.name` | which agent produced this step, shown on the run graph |
+| `agent.step.kind` | (none — falls back to `openinference.span.kind`) | the run-graph node's type (`plan`/`tool`/`llm`/...); if absent, Atlas reuses `openinference.span.kind` so an already-instrumented LLM/TOOL/CHAIN/RETRIEVER span types its own node without a second attribute |
+
+None of these are required — a span with no `agent.run.id` never appears in
+a run, and normal trace-only usage is unaffected. Set `agent.run.id` (plus
+`session.id` if you want session grouping) on every span belonging to one
+agent's plan/tool/LLM/handoff sequence.
+
 ## Minimal setup (Python example — adapt per language, same OTel SDK concepts apply everywhere)
 
 1. Install: `opentelemetry-api`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http`

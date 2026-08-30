@@ -124,6 +124,21 @@ func tracesToSpans(traces ptrace.Traces) []storage.Span {
 					parentSpanID = hex.EncodeToString(psid[:])
 				}
 
+				attrs := span.Attributes().AsRaw()
+				// The OTel status description (e.g. Python's
+				// Status(StatusCode.ERROR, "why")) lives on the span's
+				// Status, not in Attributes — ptrace parses it, but until
+				// now nothing copied it forward, so it was silently
+				// dropped before ever reaching storage. Surfaced under a
+				// stable key so any instrumented service's error reason
+				// shows up without that service adding its own attribute.
+				if msg := span.Status().Message(); msg != "" {
+					if attrs == nil {
+						attrs = make(map[string]any, 1)
+					}
+					attrs["otel.status_message"] = msg
+				}
+
 				out = append(out, storage.Span{
 					TraceID:            hex.EncodeToString(traceIDBytes(span)),
 					SpanID:             hex.EncodeToString(spanIDBytes(span)),
@@ -133,7 +148,7 @@ func tracesToSpans(traces ptrace.Traces) []storage.Span {
 					StartTime:          span.StartTimestamp().AsTime(),
 					EndTime:            span.EndTimestamp().AsTime(),
 					StatusCode:         statusCodeString(span.Status().Code()),
-					Attributes:         span.Attributes().AsRaw(),
+					Attributes:         attrs,
 					ResourceAttributes: resourceAttrs,
 				})
 			}

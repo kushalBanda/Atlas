@@ -1,7 +1,3 @@
-// Command atlas-server is the Atlas backend entrypoint.
-//
-// See docs/plans/atlas/04-slices.md for the build order and
-// docs/plans/atlas/03-program-design.md for the target startup call stack.
 package main
 
 import (
@@ -69,7 +65,7 @@ func run() error {
 		}
 	}()
 
-	queryHandlers := query.NewHandlers(store)
+	queryHandlers := query.NewHandlers(store, cfg.AgentRunRepeatThreshold)
 	apiMux := api.NewRouter(queryHandlers, *staticDir)
 
 	registry := plugin.NewRegistry(store, apiMux)

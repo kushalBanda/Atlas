@@ -136,6 +136,8 @@ export function SpanDetailPanel({ span, onClose }: SpanDetailPanelProps) {
   const open = span !== null;
 
   const isLLM = displaySpan ? hasLLMFields(displaySpan) : false;
+  const isError = displaySpan?.StatusCode === "error";
+  const errorMessage = displaySpan ? asText(displaySpan.Attributes["otel.status_message"]) : null;
   const prompt = displaySpan ? asText(displaySpan.Attributes["gen_ai.prompt"]) : null;
   const completion = displaySpan ? asText(displaySpan.Attributes["gen_ai.completion"]) : null;
   const [attributesView, setAttributesView] = useState<"tree" | "raw">("tree");
@@ -209,6 +211,16 @@ export function SpanDetailPanel({ span, onClose }: SpanDetailPanelProps) {
       <div className="flex-shrink-0">
         <MetaBadges span={displaySpan} />
         {isLLM && <LLMBadges span={displaySpan} />}
+        {isError && (
+          <div className="flex items-start gap-2 border-b border-border bg-error-dim px-4 py-3">
+            <span aria-hidden="true" className="mt-0.5 text-[#f3a2a5]">
+              &#9888;
+            </span>
+            <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[#f3a2a5]">
+              {errorMessage ?? "This span failed. No error message was reported."}
+            </p>
+          </div>
+        )}
       </div>
 
       {isLLM ? (

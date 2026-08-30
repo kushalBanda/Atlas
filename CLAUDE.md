@@ -21,13 +21,14 @@ Load these skills at the start of every Go-related task, even if the user does n
 Atlas is an observability platform. The backend has a working v1: all 8 planned slices are done (see `docs/plans/atlas/00-status.md`). 110+ tests pass across 12 packages, clean under `go vet` and `go test -race`.
 
 Implemented packages:
-- `pkg/storage` — DuckDB-backed `Store` interface (`duckdb.go`, `schema.go`).
+- `pkg/storage` — DuckDB-backed `Store` interface (`duckdb.go`, `schema.go`). `schema.go` also carries `migrationDDL`, applied at open time — `CREATE TABLE IF NOT EXISTS` cannot add a column to an existing database file, so column additions (e.g. the agent-run fields) need an explicit `ALTER TABLE ADD COLUMN IF NOT EXISTS` run unconditionally on every startup.
 - `pkg/ingest` — OTLP/HTTP receive (JSON and protobuf).
 - `pkg/plugin` — module registry (`Registry`, `Module` interface); `otelcore` and `llmagent` modules registered.
-- `pkg/fields` — modular per-span field extractors (LLM fields today, `kind.go`/`llm.go`), run unconditionally in `Registry.Dispatch` on every span regardless of `atlas.module`.
+- `pkg/fields` — modular per-span field extractors (LLM fields, agent-run fields; `kind.go`/`llm.go`/`agent.go`), run unconditionally in `Registry.Dispatch` on every span regardless of `atlas.module`. `Span` also carries `SessionID`/`UserID`/`AgentRunID`/`AgentName`/`AgentStepKind`, populated from `session.id`/`user.id`/`agent.run.id`/`agent.name`/`agent.step.kind` (or their `gen_ai.*` equivalents) on any span.
 - `pkg/discovery` — process-scan, Docker, and K8s discoverers behind one `Discoverer` interface, plus `Handler` for `GET /discovery/targets`.
 - `pkg/rootcause` — trace-close `Watcher` and `Score` heuristic.
-- `pkg/query`, `pkg/api`, `pkg/config` — query API (`GET /traces`, `GET /traces/{trace_id}`), HTTP router, YAML config loader.
+- `pkg/agentrun` — derives the agent-run decision graph (`Build`) at read time from spans sharing an `agent_run_id`; a run may cross traces. Nothing here is stored — see `docs/superpowers/specs/2026-08-29-agent-run-debugging-design.md`.
+- `pkg/query`, `pkg/api`, `pkg/config` — query API (`GET /traces`, `GET /traces/{trace_id}`, `GET /stats`, `GET /runs`, `GET /runs/{run_id}`, `GET /sessions`, `GET /sessions/{session_id}`), HTTP router, YAML config loader.
 - `cmd/atlas-server` — entrypoint, plus `supervise.go` (recover+backoff wrapper for the watcher goroutine).
 
 `scripts/ai-gateway/` — a standalone Python FastAPI reference client (not part of the Go module) that instruments an OpenRouter-backed LLM call and agent/tool-call flow with OTel, exporting to Atlas's ingest endpoint. Backs the `.claude/skills/atlas-instrument/SKILL.md` skill, which documents Atlas's ingest/attribute contract for instrumenting any external service.

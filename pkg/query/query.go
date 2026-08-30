@@ -17,11 +17,15 @@ import (
 // Handlers wires the query HTTP endpoints to a storage.Store.
 type Handlers struct {
 	store storage.Store
+	// repeatThreshold is passed through to agentrun.Build; see
+	// config.Config.AgentRunRepeatThreshold.
+	repeatThreshold int
 }
 
-// NewHandlers returns query Handlers backed by store.
-func NewHandlers(store storage.Store) *Handlers {
-	return &Handlers{store: store}
+// NewHandlers returns query Handlers backed by store. repeatThreshold is
+// the agent-run graph's repeat-group threshold.
+func NewHandlers(store storage.Store, repeatThreshold int) *Handlers {
+	return &Handlers{store: store, repeatThreshold: repeatThreshold}
 }
 
 // traceResponse is the raw span tree plus verdict — deliberately
@@ -179,6 +183,11 @@ func (h *Handlers) GetStats(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	// Live trace/run data, never a static asset: a client caching this by
+	// URL would go stale immediately, and would collide with the SPA
+	// shell response some of these same paths also serve (see
+	// Router.ServeHTTP's isSPANavigation comment).
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		slog.Error("encoding json response failed", "error", err)

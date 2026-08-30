@@ -69,7 +69,7 @@ func TestHandlers_ListTraces_ReturnsSummariesWithDuration(t *testing.T) {
 	first := time.Now().UTC()
 	last := first.Add(2 * time.Second)
 	store := &fakeStore{traces: []storage.Trace{{TraceID: "t1", FirstSeen: first, LastSeen: last}}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.ListTraces(w, httptest.NewRequest(http.MethodGet, "/traces", nil))
@@ -85,7 +85,7 @@ func TestHandlers_ListTraces_ReturnsSummariesWithDuration(t *testing.T) {
 func TestHandlers_ListTraces_ParsesFilterParams(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/traces?has_root_cause=true&since=2026-01-01T00:00:00Z&until=2026-01-02T00:00:00Z&limit=5", nil)
@@ -115,7 +115,7 @@ func TestHandlers_ListTraces_InvalidParams_Returns400(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h := NewHandlers(&fakeStore{})
+			h := NewHandlers(&fakeStore{}, 3)
 			w := httptest.NewRecorder()
 			h.ListTraces(w, httptest.NewRequest(http.MethodGet, "/traces?"+tt.query, nil))
 			require.Equal(t, http.StatusBadRequest, w.Code)
@@ -126,7 +126,7 @@ func TestHandlers_ListTraces_InvalidParams_Returns400(t *testing.T) {
 func TestHandlers_ListTraces_StoreError_Returns500(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{tracesErr: assert.AnError}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.ListTraces(w, httptest.NewRequest(http.MethodGet, "/traces", nil))
@@ -148,7 +148,7 @@ func TestHandlers_GetTrace_ReturnsWaterfallAndVerdict(t *testing.T) {
 		},
 		spans: []storage.Span{{TraceID: "t1", SpanID: "root", ServiceName: "s", Name: "n"}},
 	}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetTrace(w, requestWithTraceID("t1"))
@@ -164,7 +164,7 @@ func TestHandlers_GetTrace_ReturnsWaterfallAndVerdict(t *testing.T) {
 func TestHandlers_GetTrace_UnknownTraceID_Returns404(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{traceErr: storage.ErrTraceNotFound}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetTrace(w, requestWithTraceID("missing"))
@@ -178,7 +178,7 @@ func TestHandlers_GetTrace_UnknownTraceID_Returns404(t *testing.T) {
 func TestHandlers_GetTrace_StoreError_Returns500(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{traceErr: assert.AnError}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetTrace(w, requestWithTraceID("t1"))
@@ -189,7 +189,7 @@ func TestHandlers_GetTrace_StoreError_Returns500(t *testing.T) {
 func TestHandlers_GetTrace_MissingTraceIDPathValue_Returns400(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetTrace(w, requestWithTraceID(""))
@@ -200,7 +200,7 @@ func TestHandlers_GetTrace_MissingTraceIDPathValue_Returns400(t *testing.T) {
 func TestHandlers_GetStats_ReturnsStoreStats(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{stats: &storage.Stats{TotalTraces: 3, TracesWithRootCause: 1, TotalSpans: 9}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetStats(w, httptest.NewRequest(http.MethodGet, "/stats", nil))
@@ -216,7 +216,7 @@ func TestHandlers_GetStats_ReturnsStoreStats(t *testing.T) {
 func TestHandlers_GetStats_ParsesFilterParams(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{stats: &storage.Stats{}}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/stats?since=2026-01-01T00:00:00Z&until=2026-01-02T00:00:00Z", nil)
@@ -230,7 +230,7 @@ func TestHandlers_GetStats_ParsesFilterParams(t *testing.T) {
 func TestHandlers_GetStats_InvalidSince_Returns400(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetStats(w, httptest.NewRequest(http.MethodGet, "/stats?since=not-a-time", nil))
@@ -241,7 +241,7 @@ func TestHandlers_GetStats_InvalidSince_Returns400(t *testing.T) {
 func TestHandlers_GetStats_StoreError_Returns500(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{statsErr: assert.AnError}
-	h := NewHandlers(store)
+	h := NewHandlers(store, 3)
 
 	w := httptest.NewRecorder()
 	h.GetStats(w, httptest.NewRequest(http.MethodGet, "/stats", nil))

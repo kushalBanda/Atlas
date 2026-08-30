@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS spans (
 	llm_prompt_id        VARCHAR,
 	llm_prompt_name      VARCHAR,
 	llm_prompt_version   BIGINT,
+	session_id           VARCHAR,
+	user_id              VARCHAR,
+	agent_run_id         VARCHAR,
+	agent_name           VARCHAR,
+	agent_step_kind      VARCHAR,
 	PRIMARY KEY (trace_id, span_id)
 );
 
@@ -41,4 +46,17 @@ CREATE TABLE IF NOT EXISTS traces (
 	reason                    VARCHAR,
 	self_time_pct             DOUBLE
 );
+`
+
+// migrationDDL brings a spans table created before the agent-run columns
+// existed up to the current shape. schemaDDL is CREATE TABLE IF NOT EXISTS,
+// so it is a no-op against an existing atlas.duckdb file — without these
+// ALTERs an upgraded binary would fail every insert on an old database.
+// Each statement is idempotent, so this runs unconditionally at startup.
+const migrationDDL = `
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS session_id VARCHAR;
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS user_id VARCHAR;
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS agent_run_id VARCHAR;
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS agent_name VARCHAR;
+ALTER TABLE spans ADD COLUMN IF NOT EXISTS agent_step_kind VARCHAR;
 `

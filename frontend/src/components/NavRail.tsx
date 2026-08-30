@@ -30,6 +30,12 @@ export function NavRail() {
       <NavLink to="/traces" title="Tracing" className={linkClass}>
         Tracing
       </NavLink>
+      <NavLink to="/runs" title="Runs" className={linkClass}>
+        Runs
+      </NavLink>
+      <NavLink to="/sessions" title="Sessions" className={linkClass}>
+        Sessions
+      </NavLink>
 
       <div className="flex-1" />
     </nav>

@@ -95,3 +95,22 @@ func TestDefault_ReturnsSaneValues(t *testing.T) {
 	cfg := Default()
 	require.NoError(t, cfg.validate())
 }
+
+func TestDefault_AgentRunRepeatThreshold(t *testing.T) {
+	require.Equal(t, 3, Default().AgentRunRepeatThreshold)
+}
+
+func TestLoad_RejectsRepeatThresholdBelowTwo(t *testing.T) {
+	path := writeConfigFile(t, "agent_run_repeat_threshold: 1\n")
+
+	_, err := Load(path)
+	require.Error(t, err, "expected an error for a repeat threshold below 2")
+}
+
+func TestLoad_OverridesRepeatThreshold(t *testing.T) {
+	path := writeConfigFile(t, "agent_run_repeat_threshold: 5\n")
+
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	require.Equal(t, 5, cfg.AgentRunRepeatThreshold)
+}

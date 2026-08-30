@@ -39,7 +39,7 @@ func TestEndToEnd_MultiHopTrace_ProducesExpectedRootCauseVerdict(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
-	queryHandlers := query.NewHandlers(store)
+	queryHandlers := query.NewHandlers(store, 3)
 	router := api.NewRouter(queryHandlers, "")
 
 	registry := plugin.NewRegistry(store, router)

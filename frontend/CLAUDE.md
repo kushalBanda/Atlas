@@ -4,11 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Atlas's frontend is done. All 4 gates and all 8 slices are complete (see `docs/plans/atlas-frontend/00-status.md`). It has 3 screens, all wired to the real backend, no mocks:
+Atlas's frontend is done. All 4 gates and all 8 slices are complete (see `docs/plans/atlas-frontend/00-status.md`). It has 5 screens, all wired to the real backend, no mocks:
 
 - **Trace list** (`/traces`) — filters and client-side pagination.
 - **Trace detail** (`/traces/:traceId`) — waterfall view, root-cause verdict line, LLM span badges, span detail panel.
 - **Discovery** (`/discovery`) — discovery targets list.
+- **Agent runs** (`/runs`, `/runs/:runId`) — run list and the derived decision graph for one agent run, added by `docs/superpowers/plans/2026-08-29-agent-run-debugging.md`.
+- **Sessions** (`/sessions`) — session list, grouping runs.
 
 Stack: React 19 + Vite + TypeScript + Tailwind v4 + TanStack Query + React Router. No React Compiler, no shadcn/ui components pulled in beyond what is already in `src/components`.
 
@@ -36,10 +38,14 @@ From the repo root, `make build` runs `npm --prefix frontend run build` before t
 
 Full design rationale lives in `docs/plans/atlas-frontend/02-architecture.md` and `docs/plans/atlas-frontend/00-status.md`; read those before changing data flow or adding a screen.
 
-**No new backend endpoints.** The frontend only reads three existing read-only endpoints:
+The frontend reads seven read-only backend endpoints:
 - `GET /traces?has_root_cause=&since=&limit=`
 - `GET /traces/{trace_id}`
 - `GET /discovery/targets`
+- `GET /runs?session_id=&user_id=&agent=&since=&until=&limit=`
+- `GET /runs/{run_id}` — spans plus the derived decision graph (nodes/edges/repeats)
+- `GET /sessions?user_id=&since=&until=&limit=`
+- `GET /sessions/{session_id}`
 
 **Data fetching**: every screen uses a TanStack Query hook that calls `apiGet<T>` (`src/api/client.ts`). `ApiError` carries the HTTP status so callers can branch: 404 means "does not exist, don't offer retry"; anything else means "transient, offer retry." No websockets, no polling — pages fetch on mount and on filter/param change; refresh is manual.
 

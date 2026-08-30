@@ -98,3 +98,79 @@ export interface DiscoveryResponse {
   matched: DiscoveryTarget[];
   unrecognized: DiscoveryTarget[];
 }
+
+// Backend structs have no JSON tags, so storage.RunSummary and
+// storage.SessionSummary serialize as Go PascalCase field names. The
+// agentrun graph types DO carry explicit lowercase tags. Do not
+// "normalize" either side — check a live curl before changing a name.
+export interface RunSummary {
+  RunID: string;
+  AgentName: string | null;
+  SessionID: string | null;
+  UserID: string | null;
+  FirstSeen: string;
+  LastSeen: string;
+  SpanCount: number;
+  ErrorCount: number;
+  PromptTokens: number;
+  CompletionTokens: number;
+  Cost: number;
+}
+
+export interface SessionSummary {
+  SessionID: string;
+  UserID: string | null;
+  FirstSeen: string;
+  LastSeen: string;
+  RunCount: number;
+  ErrorCount: number;
+  Cost: number;
+}
+
+export interface GraphNode {
+  span_id: string;
+  trace_id: string;
+  name: string;
+  step_kind: string;
+  agent_name: string;
+  service_name: string;
+  status_code: string;
+  start_time: string;
+  duration_nano: number;
+  repeat_group: number | null;
+}
+
+export interface GraphEdge {
+  from: string;
+  to: string;
+  cross_trace: boolean;
+}
+
+export interface RunRepeat {
+  index: number;
+  agent_name: string;
+  name: string;
+  count: number;
+  span_ids: string[];
+}
+
+export interface RunGraph {
+  run_id: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  repeats: RunRepeat[];
+}
+
+export interface RunListResponse {
+  runs: RunSummary[];
+}
+
+export interface RunResponse {
+  run: RunSummary | null;
+  spans: Span[];
+  graph: RunGraph;
+}
+
+export interface SessionListResponse {
+  sessions: SessionSummary[];
+}

@@ -20,6 +20,10 @@ type Config struct {
 	TraceCloseTimeout    time.Duration
 	RootCauseSelfTimePct float64
 	DiscoveryRulesPath   string
+	// AgentRunRepeatThreshold is the number of consecutive same-agent,
+	// same-step spans that mark a repeat group in a run graph. Purely a
+	// display annotation — see pkg/agentrun.
+	AgentRunRepeatThreshold int
 }
 
 // Default returns Config with every field set to its v1 default.
@@ -34,8 +38,9 @@ func Default() Config {
 		TraceCloseTimeout: 30 * time.Second,
 		// RootCauseSelfTimePct is an unvalidated v1 default — see
 		// docs/plans/atlas/future.md.
-		RootCauseSelfTimePct: 0.30,
-		DiscoveryRulesPath:   "./conf/discovery-rules.yaml",
+		RootCauseSelfTimePct:    0.30,
+		DiscoveryRulesPath:      "./conf/discovery-rules.yaml",
+		AgentRunRepeatThreshold: 3,
 	}
 }
 
@@ -51,6 +56,8 @@ type rawConfig struct {
 	TraceCloseTimeout    *string  `yaml:"trace_close_timeout"`
 	RootCauseSelfTimePct *float64 `yaml:"root_cause_self_time_pct"`
 	DiscoveryRulesPath   *string  `yaml:"discovery_rules_path"`
+
+	AgentRunRepeatThreshold *int `yaml:"agent_run_repeat_threshold"`
 }
 
 // Load reads a YAML config file at path, applying it on top of Default().
@@ -91,6 +98,9 @@ func Load(path string) (*Config, error) {
 	if raw.DiscoveryRulesPath != nil {
 		cfg.DiscoveryRulesPath = *raw.DiscoveryRulesPath
 	}
+	if raw.AgentRunRepeatThreshold != nil {
+		cfg.AgentRunRepeatThreshold = *raw.AgentRunRepeatThreshold
+	}
 
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("validating config file %q: %w", path, err)
@@ -107,6 +117,9 @@ func (c Config) validate() error {
 	}
 	if c.StoragePath == "" {
 		return fmt.Errorf("storage_path must not be empty")
+	}
+	if c.AgentRunRepeatThreshold < 2 {
+		return fmt.Errorf("agent_run_repeat_threshold must be at least 2, got %d", c.AgentRunRepeatThreshold)
 	}
 	return nil
 }

@@ -184,3 +184,67 @@ func TestServeOTLP_StoreWriteError_Returns500(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
+
+// TestServeOTLP_StatusMessage_SurfacedAsAttribute proves the OTel span
+// status description (set by e.g. Python's
+// Status(StatusCode.ERROR, "why it failed")) is captured into Attributes
+// under otel.status_message instead of being silently dropped, since it
+// carries the actual error reason that Attributes alone never captures.
+func TestServeOTLP_StatusMessage_SurfacedAsAttribute(t *testing.T) {
+	t.Parallel()
+	traces := ptrace.NewTraces()
+	rs := traces.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "ai-gateway")
+
+	span := rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	span.SetTraceID(pcommon.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16})
+	span.SetSpanID(pcommon.SpanID{1, 2, 3, 4, 5, 6, 7, 8})
+	span.SetName("openrouter.chat_completion")
+	now := time.Now()
+	span.SetStartTimestamp(pcommon.NewTimestampFromTime(now))
+	span.SetEndTimestamp(pcommon.NewTimestampFromTime(now.Add(10 * time.Millisecond)))
+	span.Status().SetCode(ptrace.StatusCodeError)
+	span.Status().SetMessage("rate limited: 429 too many requests")
+
+	var marshaler ptrace.ProtoMarshaler
+	body, err := marshaler.MarshalTraces(traces)
+	require.NoError(t, err)
+
+	dispatcher := &fakeDispatcher{}
+	srv := NewServer(dispatcher)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	w := httptest.NewRecorder()
+	srv.ServeOTLP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, dispatcher.written, 1)
+	require.Equal(t, "rate limited: 429 too many requests", dispatcher.written[0].Attributes["otel.status_message"])
+}
+
+// TestServeOTLP_NoStatusMessage_AttributeAbsent proves a span with no
+// status description gets no otel.status_message key at all, not an
+// empty-string one — callers can distinguish "no message" from "empty
+// message" without a special case.
+func TestServeOTLP_NoStatusMessage_AttributeAbsent(t *testing.T) {
+	t.Parallel()
+	traces := newSingleSpanTraces(t)
+
+	var marshaler ptrace.ProtoMarshaler
+	body, err := marshaler.MarshalTraces(traces)
+	require.NoError(t, err)
+
+	dispatcher := &fakeDispatcher{}
+	srv := NewServer(dispatcher)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/traces", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	w := httptest.NewRecorder()
+	srv.ServeOTLP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, dispatcher.written, 1)
+	_, ok := dispatcher.written[0].Attributes["otel.status_message"]
+	require.False(t, ok)
+}
