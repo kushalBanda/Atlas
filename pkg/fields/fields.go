@@ -16,6 +16,9 @@ var All = []Extractor{
 	ExtractSpanKind,
 	ExtractLevel,
 	ExtractLLMFields,
+	// After ExtractSpanKind: ExtractAgentFields reads s.SpanKind as its
+	// AgentStepKind fallback.
+	ExtractAgentFields,
 }
 
 // Apply runs every registered extractor over spans in place.

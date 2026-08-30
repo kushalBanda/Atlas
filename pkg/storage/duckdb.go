@@ -14,6 +14,16 @@ import (
 // ErrTraceNotFound is returned by GetTrace when no row matches the trace ID.
 var ErrTraceNotFound = errors.New("trace not found")
 
+// spanColumns is the canonical span SELECT list, shared by GetTraceSpans
+// and GetRunSpans. scanSpanRows scans exactly this order.
+const spanColumns = `trace_id, span_id, COALESCE(parent_span_id, ''), service_name, name,
+	start_time, end_time, status_code, attributes, resource_attributes,
+	span_kind, level,
+	llm_model, llm_prompt_tokens, llm_completion_tokens, llm_cost,
+	llm_temperature, llm_top_p, llm_max_tokens, llm_usage_details, llm_cost_details,
+	llm_time_to_first_token_nano, llm_prompt_id, llm_prompt_name, llm_prompt_version,
+	session_id, user_id, agent_run_id, agent_name, agent_step_kind`
+
 // DuckDB is the Store implementation backed by an embedded DuckDB file.
 type DuckDB struct {
 	db *sql.DB
@@ -34,6 +44,11 @@ func NewDuckDB(path string) (*DuckDB, error) {
 	if _, err := db.Exec(schemaDDL); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("applying core schema: %w", err)
+	}
+
+	if _, err := db.Exec(migrationDDL); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("applying schema migrations: %w", err)
 	}
 
 	return &DuckDB{db: db}, nil
@@ -89,8 +104,9 @@ func (d *DuckDB) WriteSpans(ctx context.Context, spans []Span) error {
 			span_kind, level,
 			llm_model, llm_prompt_tokens, llm_completion_tokens, llm_cost,
 			llm_temperature, llm_top_p, llm_max_tokens, llm_usage_details, llm_cost_details,
-			llm_time_to_first_token_nano, llm_prompt_id, llm_prompt_name, llm_prompt_version)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			llm_time_to_first_token_nano, llm_prompt_id, llm_prompt_name, llm_prompt_version,
+			session_id, user_id, agent_run_id, agent_name, agent_step_kind)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (trace_id, span_id) DO NOTHING
 	`)
 	if err != nil {
@@ -139,7 +155,8 @@ func (d *DuckDB) WriteSpans(ctx context.Context, spans []Span) error {
 			s.SpanKind, s.Level,
 			s.LLMModel, s.LLMPromptTokens, s.LLMCompletionTokens, s.LLMCost,
 			s.LLMTemperature, s.LLMTopP, s.LLMMaxTokens, usageDetails, costDetails,
-			s.LLMTimeToFirstTokenNano, s.LLMPromptID, s.LLMPromptName, s.LLMPromptVersion); err != nil {
+			s.LLMTimeToFirstTokenNano, s.LLMPromptID, s.LLMPromptName, s.LLMPromptVersion,
+			s.SessionID, s.UserID, s.AgentRunID, s.AgentName, s.AgentStepKind); err != nil {
 			return fmt.Errorf("inserting span %s/%s: %w", s.TraceID, s.SpanID, err)
 		}
 
@@ -156,13 +173,7 @@ func (d *DuckDB) WriteSpans(ctx context.Context, spans []Span) error {
 
 // GetTraceSpans returns every span belonging to traceID, ordered by start time.
 func (d *DuckDB) GetTraceSpans(ctx context.Context, traceID string) ([]Span, error) {
-	rows, err := d.db.QueryContext(ctx, `
-		SELECT trace_id, span_id, COALESCE(parent_span_id, ''), service_name, name,
-			start_time, end_time, status_code, attributes, resource_attributes,
-			span_kind, level,
-			llm_model, llm_prompt_tokens, llm_completion_tokens, llm_cost,
-			llm_temperature, llm_top_p, llm_max_tokens, llm_usage_details, llm_cost_details,
-			llm_time_to_first_token_nano, llm_prompt_id, llm_prompt_name, llm_prompt_version
+	rows, err := d.db.QueryContext(ctx, `SELECT `+spanColumns+`
 		FROM spans
 		WHERE trace_id = ?
 		ORDER BY start_time
@@ -172,6 +183,35 @@ func (d *DuckDB) GetTraceSpans(ctx context.Context, traceID string) ([]Span, err
 	}
 	defer rows.Close()
 
+	spans, err := scanSpanRows(rows)
+	if err != nil {
+		return nil, fmt.Errorf("reading spans for trace %s: %w", traceID, err)
+	}
+	return spans, nil
+}
+
+// GetRunSpans returns every span in runID, ordered by start_time. A run can
+// cross traces, so this deliberately does not filter by trace_id.
+func (d *DuckDB) GetRunSpans(ctx context.Context, runID string) ([]Span, error) {
+	rows, err := d.db.QueryContext(ctx, `SELECT `+spanColumns+`
+		FROM spans
+		WHERE agent_run_id = ?
+		ORDER BY start_time, span_id
+	`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("querying spans for run %s: %w", runID, err)
+	}
+	defer rows.Close()
+
+	spans, err := scanSpanRows(rows)
+	if err != nil {
+		return nil, fmt.Errorf("reading spans for run %s: %w", runID, err)
+	}
+	return spans, nil
+}
+
+// scanSpanRows scans rows selected with spanColumns into Spans.
+func scanSpanRows(rows *sql.Rows) ([]Span, error) {
 	var spans []Span
 	for rows.Next() {
 		var s Span
@@ -181,9 +221,11 @@ func (d *DuckDB) GetTraceSpans(ctx context.Context, traceID string) ([]Span, err
 			&s.SpanKind, &s.Level,
 			&s.LLMModel, &s.LLMPromptTokens, &s.LLMCompletionTokens, &s.LLMCost,
 			&s.LLMTemperature, &s.LLMTopP, &s.LLMMaxTokens, &usageDetails, &costDetails,
-			&s.LLMTimeToFirstTokenNano, &s.LLMPromptID, &s.LLMPromptName, &s.LLMPromptVersion); err != nil {
+			&s.LLMTimeToFirstTokenNano, &s.LLMPromptID, &s.LLMPromptName, &s.LLMPromptVersion,
+			&s.SessionID, &s.UserID, &s.AgentRunID, &s.AgentName, &s.AgentStepKind); err != nil {
 			return nil, fmt.Errorf("scanning span row: %w", err)
 		}
+		var err error
 		if s.Attributes, err = unmarshalJSON(attrs); err != nil {
 			return nil, err
 		}
@@ -199,9 +241,125 @@ func (d *DuckDB) GetTraceSpans(ctx context.Context, traceID string) ([]Span, err
 		spans = append(spans, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating spans for trace %s: %w", traceID, err)
+		return nil, fmt.Errorf("iterating spans: %w", err)
 	}
 	return spans, nil
+}
+
+// ListRuns aggregates spans into run summaries, most recent first.
+func (d *DuckDB) ListRuns(ctx context.Context, f RunFilter) ([]RunSummary, error) {
+	query := `
+		SELECT agent_run_id,
+			MAX(agent_name), MAX(session_id), MAX(user_id),
+			MIN(start_time), MAX(end_time),
+			COUNT(*),
+			COUNT(*) FILTER (WHERE status_code = 'error'),
+			COALESCE(SUM(llm_prompt_tokens), 0),
+			COALESCE(SUM(llm_completion_tokens), 0),
+			COALESCE(SUM(llm_cost), 0)
+		FROM spans
+		WHERE agent_run_id IS NOT NULL
+	`
+	var args []any
+
+	if f.SessionID != nil {
+		query += " AND session_id = ?"
+		args = append(args, *f.SessionID)
+	}
+	if f.UserID != nil {
+		query += " AND user_id = ?"
+		args = append(args, *f.UserID)
+	}
+	if f.AgentName != nil {
+		query += " AND agent_name = ?"
+		args = append(args, *f.AgentName)
+	}
+	if f.Since != nil {
+		query += " AND start_time >= ?"
+		args = append(args, *f.Since)
+	}
+	if f.Until != nil {
+		query += " AND start_time <= ?"
+		args = append(args, *f.Until)
+	}
+	query += " GROUP BY agent_run_id ORDER BY MAX(end_time) DESC"
+	if f.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, f.Limit)
+	}
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []RunSummary
+	for rows.Next() {
+		var r RunSummary
+		if err := rows.Scan(&r.RunID, &r.AgentName, &r.SessionID, &r.UserID,
+			&r.FirstSeen, &r.LastSeen, &r.SpanCount, &r.ErrorCount,
+			&r.PromptTokens, &r.CompletionTokens, &r.Cost); err != nil {
+			return nil, fmt.Errorf("scanning run summary: %w", err)
+		}
+		runs = append(runs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating runs: %w", err)
+	}
+	return runs, nil
+}
+
+// ListSessions aggregates runs into session summaries, most recent first.
+func (d *DuckDB) ListSessions(ctx context.Context, f SessionFilter) ([]SessionSummary, error) {
+	query := `
+		SELECT session_id, MAX(user_id),
+			MIN(start_time), MAX(end_time),
+			COUNT(DISTINCT agent_run_id),
+			COUNT(*) FILTER (WHERE status_code = 'error'),
+			COALESCE(SUM(llm_cost), 0)
+		FROM spans
+		WHERE session_id IS NOT NULL
+	`
+	var args []any
+
+	if f.UserID != nil {
+		query += " AND user_id = ?"
+		args = append(args, *f.UserID)
+	}
+	if f.Since != nil {
+		query += " AND start_time >= ?"
+		args = append(args, *f.Since)
+	}
+	if f.Until != nil {
+		query += " AND start_time <= ?"
+		args = append(args, *f.Until)
+	}
+	query += " GROUP BY session_id ORDER BY MAX(end_time) DESC"
+	if f.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, f.Limit)
+	}
+
+	rows, err := d.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []SessionSummary
+	for rows.Next() {
+		var s SessionSummary
+		if err := rows.Scan(&s.SessionID, &s.UserID, &s.FirstSeen, &s.LastSeen,
+			&s.RunCount, &s.ErrorCount, &s.Cost); err != nil {
+			return nil, fmt.Errorf("scanning session summary: %w", err)
+		}
+		sessions = append(sessions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating sessions: %w", err)
+	}
+	return sessions, nil
 }
 
 // ListRootArrivedTraces returns trace IDs whose root span has arrived

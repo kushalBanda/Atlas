@@ -69,7 +69,7 @@ func run() error {
 		}
 	}()
 
-	queryHandlers := query.NewHandlers(store)
+	queryHandlers := query.NewHandlers(store, cfg.AgentRunRepeatThreshold)
 	apiMux := api.NewRouter(queryHandlers, *staticDir)
 
 	registry := plugin.NewRegistry(store, apiMux)

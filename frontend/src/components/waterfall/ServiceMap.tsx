@@ -3,6 +3,7 @@ import type { Span } from "../../api/types";
 import { buildCallGraph, type CallNode } from "../../lib/callGraph";
 import { formatDurationNano } from "../../lib/duration";
 import { colorForService } from "../../lib/serviceColor";
+import { GraphCanvas } from "../canvas/GraphCanvas";
 
 const COL_WIDTH = 240;
 const ROW_HEIGHT = 56;
@@ -77,7 +78,7 @@ export function ServiceMap({ spans, selectedSpanId, onSelectSpan }: ServiceMapPr
             ? `${hoveredEdge.count} call${hoveredEdge.count === 1 ? "" : "s"}${hoveredEdge.errorCount > 0 ? `, ${hoveredEdge.errorCount} error` : ""}`
             : `${nodes.length} operation${nodes.length === 1 ? "" : "s"} across ${columns} layer${columns === 1 ? "" : "s"}`}
       </div>
-      <div className="flex-1 overflow-auto bg-canvas">
+      <GraphCanvas contentWidth={width} contentHeight={height}>
         <svg width={width} height={height} className="block">
           <defs>
             <marker id="cg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -172,7 +173,7 @@ export function ServiceMap({ spans, selectedSpanId, onSelectSpan }: ServiceMapPr
             );
           })}
         </svg>
-      </div>
+      </GraphCanvas>
     </div>
   );
 }

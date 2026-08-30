@@ -25,3 +25,6 @@ root_cause_self_time_pct: 0.30
 # External discovery rules file (port/process/image -> receiver config).
 # Edited independently of this file, no rebuild needed.
 discovery_rules_path: ./conf/discovery-rules.yaml
+# Consecutive same-agent, same-step spans that mark a repeat group (tool
+# loop / retry storm) in an agent-run graph. Minimum 2.
+agent_run_repeat_threshold: 3

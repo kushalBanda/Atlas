@@ -21,7 +21,7 @@ import (
 // path returns to a fetch() call. Mirrors vite.config.ts's htmlNavBypass,
 // which solves the identical ambiguity in dev via the same Accept-header
 // check against the same two prefixes.
-var spaRoutePrefixes = []string{"/traces", "/discovery"}
+var spaRoutePrefixes = []string{"/traces", "/discovery", "/runs", "/sessions"}
 
 // RouteRegistrar lets a plugin module mount its HTTP handlers at
 // registration time. Router implements this. Collision on pattern is an
@@ -61,6 +61,10 @@ func NewRouter(queryHandlers *query.Handlers, staticDir string) *Router {
 	mustHandle(r, "GET /traces", http.HandlerFunc(queryHandlers.ListTraces))
 	mustHandle(r, "GET /traces/{trace_id}", http.HandlerFunc(queryHandlers.GetTrace))
 	mustHandle(r, "GET /stats", http.HandlerFunc(queryHandlers.GetStats))
+	mustHandle(r, "GET /runs", http.HandlerFunc(queryHandlers.ListRuns))
+	mustHandle(r, "GET /runs/{run_id}", http.HandlerFunc(queryHandlers.GetRun))
+	mustHandle(r, "GET /sessions", http.HandlerFunc(queryHandlers.ListSessions))
+	mustHandle(r, "GET /sessions/{session_id}", http.HandlerFunc(queryHandlers.GetSession))
 	mustHandle(r, "GET /healthz", http.HandlerFunc(healthz))
 
 	if staticDir != "" {
@@ -99,6 +103,18 @@ func (r *Router) Handle(pattern string, h http.Handler) error {
 // ServeHTTP implements http.Handler.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if r.isSPANavigation(req) {
+		// A path like /traces/{id} serves two different bodies depending
+		// on Accept: the SPA shell for a browser navigation, the real
+		// JSON for a fetch() call. http.ServeFile sets Last-Modified,
+		// which makes the response cacheable by URL alone — without
+		// Vary: Accept, a browser that later fetch()es the same URL for
+		// JSON can get served this cached HTML straight from its cache,
+		// never reaching the server at all. Both headers are required:
+		// Vary alone doesn't stop the heuristic caching Last-Modified
+		// enables, and no-store alone doesn't tell a cache that once
+		// this shell IS cached, the same URL can mean something else.
+		w.Header().Set("Vary", "Accept")
+		w.Header().Set("Cache-Control", "no-store")
 		http.ServeFile(w, req, filepath.Join(r.staticDir, "index.html"))
 		return
 	}

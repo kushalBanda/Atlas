@@ -433,3 +433,149 @@ func TestConcurrentWritesAndScans_NoErrors(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+func TestWriteSpans_RoundTripsAgentFields(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sess, user, run, agent, kind := "sess-1", "user-1", "run-1", "researcher", "tool"
+	start := time.Now().UTC().Truncate(time.Millisecond)
+	in := Span{
+		TraceID: "t1", SpanID: "s1", ServiceName: "svc", Name: "search",
+		StartTime: start, EndTime: start.Add(time.Second), StatusCode: "ok",
+		SessionID: &sess, UserID: &user, AgentRunID: &run,
+		AgentName: &agent, AgentStepKind: &kind,
+	}
+	require.NoError(t, db.WriteSpans(ctx, []Span{in}))
+
+	got, err := db.GetTraceSpans(ctx, "t1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	require.Equal(t, &sess, got[0].SessionID)
+	require.Equal(t, &user, got[0].UserID)
+	require.Equal(t, &run, got[0].AgentRunID)
+	require.Equal(t, &agent, got[0].AgentName)
+	require.Equal(t, &kind, got[0].AgentStepKind)
+}
+
+func TestWriteSpans_AgentFieldsNilRoundTripAsNil(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	start := time.Now().UTC().Truncate(time.Millisecond)
+	in := Span{
+		TraceID: "t2", SpanID: "s2", ServiceName: "svc", Name: "GET /x",
+		StartTime: start, EndTime: start.Add(time.Second), StatusCode: "ok",
+	}
+	require.NoError(t, db.WriteSpans(ctx, []Span{in}))
+
+	got, err := db.GetTraceSpans(ctx, "t2")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Nil(t, got[0].AgentRunID)
+	require.Nil(t, got[0].SessionID)
+}
+
+func agentSpan(traceID, spanID, parent, name, runID, sessID, agent, status string, start time.Time) Span {
+	s := Span{
+		TraceID: traceID, SpanID: spanID, ParentSpanID: parent,
+		ServiceName: "svc", Name: name, StartTime: start,
+		EndTime: start.Add(time.Second), StatusCode: status,
+	}
+	if runID != "" {
+		s.AgentRunID = &runID
+	}
+	if sessID != "" {
+		s.SessionID = &sessID
+	}
+	if agent != "" {
+		s.AgentName = &agent
+	}
+	return s
+}
+
+func TestListRuns_AggregatesAndFilters(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Second)
+
+	spans := []Span{
+		agentSpan("t1", "s1", "", "plan", "run-a", "sess-1", "researcher", "ok", base),
+		agentSpan("t1", "s2", "s1", "search", "run-a", "sess-1", "researcher", "error", base.Add(time.Second)),
+		agentSpan("t2", "s3", "", "plan", "run-b", "sess-2", "writer", "ok", base.Add(2*time.Second)),
+		// No agent_run_id: must never appear in a run.
+		agentSpan("t3", "s4", "", "GET /health", "", "", "", "ok", base),
+	}
+	require.NoError(t, db.WriteSpans(ctx, spans))
+
+	runs, err := db.ListRuns(ctx, RunFilter{})
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+
+	var runA *RunSummary
+	for i := range runs {
+		if runs[i].RunID == "run-a" {
+			runA = &runs[i]
+		}
+	}
+	require.NotNil(t, runA, "run-a missing from ListRuns")
+	require.EqualValues(t, 2, runA.SpanCount)
+	require.EqualValues(t, 1, runA.ErrorCount)
+	require.NotNil(t, runA.SessionID)
+	require.Equal(t, "sess-1", *runA.SessionID)
+
+	sess := "sess-2"
+	filtered, err := db.ListRuns(ctx, RunFilter{SessionID: &sess})
+	require.NoError(t, err)
+	require.Len(t, filtered, 1)
+	require.Equal(t, "run-b", filtered[0].RunID)
+}
+
+func TestGetRunSpans_CrossesTraces(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Second)
+
+	spans := []Span{
+		agentSpan("t1", "s1", "", "plan", "run-a", "sess-1", "researcher", "ok", base),
+		agentSpan("t2", "s2", "", "tool", "run-a", "sess-1", "researcher", "ok", base.Add(time.Second)),
+		agentSpan("t3", "s3", "", "other", "run-b", "sess-1", "writer", "ok", base.Add(2*time.Second)),
+	}
+	require.NoError(t, db.WriteSpans(ctx, spans))
+
+	got, err := db.GetRunSpans(ctx, "run-a")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "s1", got[0].SpanID)
+	require.Equal(t, "s2", got[1].SpanID)
+}
+
+func TestListSessions_AggregatesRuns(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Second)
+
+	spans := []Span{
+		agentSpan("t1", "s1", "", "plan", "run-a", "sess-1", "researcher", "ok", base),
+		agentSpan("t2", "s2", "", "tool", "run-b", "sess-1", "researcher", "error", base.Add(time.Second)),
+		agentSpan("t3", "s3", "", "plan", "run-c", "sess-2", "writer", "ok", base.Add(2*time.Second)),
+	}
+	require.NoError(t, db.WriteSpans(ctx, spans))
+
+	sessions, err := db.ListSessions(ctx, SessionFilter{})
+	require.NoError(t, err)
+	require.Len(t, sessions, 2)
+
+	for _, s := range sessions {
+		if s.SessionID == "sess-1" {
+			require.EqualValues(t, 2, s.RunCount)
+			require.EqualValues(t, 1, s.ErrorCount)
+		}
+	}
+}

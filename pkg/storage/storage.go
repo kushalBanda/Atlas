@@ -42,6 +42,16 @@ type Span struct {
 	LLMPromptID             *string
 	LLMPromptName           *string
 	LLMPromptVersion        *int64
+
+	// Agent-run fields, populated by pkg/fields.ExtractAgentFields; nil
+	// otherwise. Runs and sessions are grouped by these values at read
+	// time — nothing about them is materialized. AgentStepKind falls back
+	// to SpanKind when no explicit agent.step.kind attribute is present.
+	SessionID     *string
+	UserID        *string
+	AgentRunID    *string
+	AgentName     *string
+	AgentStepKind *string
 }
 
 // Trace is one row per trace, written/updated at trace-close time.
@@ -98,6 +108,53 @@ type ModelStat struct {
 	Cost             float64
 }
 
+// RunFilter narrows ListRuns results. All pointer fields are optional.
+type RunFilter struct {
+	SessionID *string
+	UserID    *string
+	AgentName *string
+	Since     *time.Time
+	Until     *time.Time
+	Limit     int
+}
+
+// SessionFilter narrows ListSessions results.
+type SessionFilter struct {
+	UserID *string
+	Since  *time.Time
+	Until  *time.Time
+	Limit  int
+}
+
+// RunSummary is one agent run, aggregated over spans sharing an
+// agent_run_id. Derived by SQL at read time — no runs table exists.
+// SessionID/UserID/AgentName are the max value across the run's spans, so
+// a run whose spans disagree reports one of them rather than failing.
+type RunSummary struct {
+	RunID            string
+	AgentName        *string
+	SessionID        *string
+	UserID           *string
+	FirstSeen        time.Time
+	LastSeen         time.Time
+	SpanCount        int64
+	ErrorCount       int64
+	PromptTokens     int64
+	CompletionTokens int64
+	Cost             float64
+}
+
+// SessionSummary aggregates the runs sharing a session_id.
+type SessionSummary struct {
+	SessionID  string
+	UserID     *string
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	RunCount   int64
+	ErrorCount int64
+	Cost       float64
+}
+
 // Store is the backend-agnostic persistence interface.
 type Store interface {
 	WriteSpans(ctx context.Context, spans []Span) error
@@ -121,6 +178,17 @@ type Store interface {
 
 	// GetStats returns the Home-page aggregate, filtered by f.Since/f.Until.
 	GetStats(ctx context.Context, f TraceFilter) (*Stats, error)
+
+	// ListRuns returns agent-run summaries matching f, most recent first.
+	// Spans with a NULL agent_run_id are never part of a run.
+	ListRuns(ctx context.Context, f RunFilter) ([]RunSummary, error)
+
+	// GetRunSpans returns every span sharing runID, ordered by start_time.
+	// A run may cross trace boundaries, so this is not trace-scoped.
+	GetRunSpans(ctx context.Context, runID string) ([]Span, error)
+
+	// ListSessions returns session summaries matching f, most recent first.
+	ListSessions(ctx context.Context, f SessionFilter) ([]SessionSummary, error)
 
 	Close() error
 }
